@@ -2,3 +2,8 @@ dist/
 node_modules/
 src-tauri/target/
 src-tauri/gen/
+
+# Secrets — never commit (tauri-updater.key 等)
+/secrets/
+tauri-updater.key
+tauri-updater.key.pub
