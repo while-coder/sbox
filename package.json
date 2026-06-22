@@ -10,7 +10,7 @@
     "macos:build": "tauri build",
     "windows:build": "tauri build",
     "linux:build": "tauri build",
-    "publish": "git tag \"v$npm_package_version\" && git push origin \"v$npm_package_version\""
+    "release": "node scripts/release.cjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
