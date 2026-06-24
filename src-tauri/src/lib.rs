@@ -13,6 +13,7 @@ pub fn run() {
             tools::xiaoai_login::xiaoai_list_devices,
             tools::keystore_gen::keystore_check_java,
             tools::keystore_gen::keystore_generate,
+            tools::save_file::save_base64_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sbox");

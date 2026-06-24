@@ -24,6 +24,22 @@
       "command": "pnpm",
       "args": ["vite", "build"],
       "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "rust:build:dev",
+      "type": "shell",
+      "command": "cargo",
+      "args": [
+        "build",
+        "--manifest-path=${workspaceFolder}/src-tauri/Cargo.toml",
+        "--no-default-features"
+      ],
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "tauri:before:dev",
+      "dependsOn": ["ui:dev", "rust:build:dev"],
+      "dependsOrder": "parallel"
     }
   ]
 }

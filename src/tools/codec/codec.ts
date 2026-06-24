@@ -5,7 +5,7 @@
  * - HTML / Unicode 转义
  * - JSON 美化 / 压缩
  * - 哈希：MD5（内置）/ SHA-1 / SHA-256 / SHA-512（Web Crypto）
- * - 文件 ↔ Base64
+ * - 文件 ↔ Base64 / 字节大小格式化
  */
 
 // ===== Base64 =====
@@ -21,13 +21,6 @@ export function base64ToString(b64: string): string {
     const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
     return new TextDecoder().decode(bytes)
-}
-
-export function base64ToBytes(b64: string): Uint8Array {
-    const binary = atob(b64)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    return bytes
 }
 
 export function base64ToBase64Url(b64: string): string {
@@ -107,36 +100,6 @@ export function unicodeUnescape(text: string): string {
     return text
         .replace(/\\u\{([0-9a-fA-F]+)\}/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
         .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-}
-
-// ===== JSON =====
-export function jsonFormat(input: string, indent: number = 2): string {
-    return JSON.stringify(JSON.parse(input), null, indent)
-}
-
-export function jsonMinify(input: string): string {
-    return JSON.stringify(JSON.parse(input))
-}
-
-// ===== UUID =====
-export function uuid(): string {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-        return crypto.randomUUID()
-    }
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-        const r = (Math.random() * 16) | 0
-        const v = c === 'x' ? r : (r & 0x3) | 0x8
-        return v.toString(16)
-    })
-}
-
-// ===== 时间戳 =====
-export function dateToUnixSeconds(date: Date = new Date()): number {
-    return Math.floor(date.getTime() / 1000)
-}
-
-export function unixSecondsToDate(seconds: number): Date {
-    return new Date(seconds * 1000)
 }
 
 // ===== 字节大小 =====
@@ -246,7 +209,8 @@ function md5Bytes(input: Uint8Array): string {
     return toHex(a) + toHex(b) + toHex(c) + toHex(d)
 }
 
-// ===== 文件 ↔ Base64 =====
+// ===== 文件 → Base64 =====
+// 落盘统一走 src/save.ts（Tauri 保存对话框 + Rust 写文件），不再用 <a download>。
 export function fileToBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
         const reader = new FileReader()
@@ -258,31 +222,4 @@ export function fileToBase64(file: File): Promise<string> {
         reader.onerror = () => reject(reader.error)
         reader.readAsDataURL(file)
     })
-}
-
-export function downloadBase64(b64: string, filename: string, mimeType: string = 'application/octet-stream'): void {
-    const bytes = base64ToBytes(b64)
-    const copy = new Uint8Array(bytes.byteLength)
-    copy.set(bytes)
-    const blob = new Blob([copy], { type: mimeType })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-}
-
-export function downloadText(text: string, filename: string, mimeType: string = 'text/plain;charset=utf-8'): void {
-    const blob = new Blob([text], { type: mimeType })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
 }

@@ -2,37 +2,20 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "type": "node-terminal",
+      "type": "cppvsdbg",
       "request": "launch",
-      "name": "Launch sbox (dev)",
-      "command": "pnpm dev",
-      "cwd": "${workspaceFolder}"
+      "name": "Tauri Debug (dev) · Windows",
+      "preLaunchTask": "tauri:before:dev",
+      "program": "${workspaceFolder}/src-tauri/target/debug/sbox.exe",
+      "cwd": "${workspaceFolder}/src-tauri"
     },
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Tauri Debug (dev)",
-      "cargo": {
-        "args": [
-          "build",
-          "--manifest-path=${workspaceFolder}/src-tauri/Cargo.toml",
-          "--no-default-features"
-        ]
-      },
-      "preLaunchTask": "ui:dev"
-    },
-    {
-      "type": "lldb",
-      "request": "launch",
-      "name": "Tauri Debug (release)",
-      "cargo": {
-        "args": [
-          "build",
-          "--release",
-          "--manifest-path=${workspaceFolder}/src-tauri/Cargo.toml"
-        ]
-      },
-      "preLaunchTask": "ui:build"
+      "name": "Tauri Debug (dev) · macOS",
+      "preLaunchTask": "tauri:before:dev",
+      "program": "${workspaceFolder}/src-tauri/target/debug/sbox",
+      "cwd": "${workspaceFolder}/src-tauri"
     }
   ]
 }
