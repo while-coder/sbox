@@ -6,6 +6,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import UpdaterDialog from './UpdaterDialog.vue'
 import { loadSettings } from './settings'
 import { setupCloseToTray, applyBossKey, watchBossKey } from './system'
+import { ensureOverlay } from './tools/screenshot/screenshot'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +24,8 @@ onMounted(async () => {
   watchBossKey()
   // 托盘「设置」菜单 → 跳转设置页
   await listen('open-settings', () => router.push('/settings'))
+  // 预创建隐藏的截图覆盖层，后续截图只需 show()，避免冷启动 webview
+  void ensureOverlay()
 })
 </script>
 

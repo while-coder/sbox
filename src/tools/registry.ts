@@ -101,6 +101,14 @@ export const TOOLS: ToolDef[] = [
     component: () => import('./screenshot/ScreenshotView.vue'),
   },
   {
+    key: 'image-convert',
+    label: '图片格式转换',
+    description: 'png/jpeg/webp/gif/bmp/ico/tiff 等互转，支持 SVG 矢量输入，可缩放与批量',
+    category: 'media',
+    keywords: ['image', 'convert', 'format', 'svg', 'ico', 'webp', 'png', 'jpeg', 'tiff', 'bmp', 'gif', '图片', '转换', '格式', '缩放', '批量'],
+    component: () => import('./image-convert/ImageConvertView.vue'),
+  },
+  {
     key: 'keystore-gen',
     label: 'Keystore 生成',
     description: '生成 Android APK 签名 keystore（PKCS12），自动给出 GitHub Actions 所需的 4 个 secret',

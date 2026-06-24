@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { writeImage } from '@tauri-apps/plugin-clipboard-manager'
 import { Image } from '@tauri-apps/api/image'
 import jsQR from 'jsqr'
-import { getLatestCapture, finishScreenshot, type Capture } from './screenshot'
+import { getLatestCapture, finishScreenshot, CAPTURE_READY, type Capture } from './screenshot'
 import { saveBase64File } from '../../save'
 
 const capture = ref<Capture | null>(null)
@@ -23,12 +26,46 @@ const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
 type Handle = typeof HANDLES[number]
 let activeHandle: Handle | 'body' | '' = ''
 let drag = { mx: 0, my: 0, x: 0, y: 0, w: 0, h: 0 }
+let restoreMain = false
+let unlisten: UnlistenFn | null = null
+
+function resetSel() {
+  sel.x = 0; sel.y = 0; sel.w = 0; sel.h = 0
+  phase.value = 'idle'
+  toast.value = ''
+}
 
 onMounted(async () => {
-  capture.value = await getLatestCapture()
   window.addEventListener('keydown', onKey)
+  // 截图就绪：刷新画面、重置选区、显示并聚焦自身
+  unlisten = await listen<{ restoreMain: boolean }>(CAPTURE_READY, async (e) => {
+    restoreMain = e.payload?.restoreMain ?? false
+    const cap = await getLatestCapture()
+    // 先把新图解码完成再显示，避免 show 后仍在解码而露出空白/上一帧
+    if (cap) {
+      try {
+        const pre = document.createElement('img')
+        pre.src = `data:image/png;base64,${cap.base64}`
+        await pre.decode()
+      } catch { /* 解码失败也继续 */ }
+    }
+    capture.value = cap
+    resetSel()
+    await nextTick()
+    const w = getCurrentWindow()
+    // 把覆盖层精确定位/铺满“被截的那块屏”（物理像素），多屏才不会错位
+    if (cap) {
+      await w.setPosition(new PhysicalPosition(cap.x, cap.y))
+      await w.setSize(new PhysicalSize(cap.width, cap.height))
+    }
+    await w.show()
+    await w.setFocus()
+  })
 })
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  if (unlisten) unlisten()
+})
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') cancel()
@@ -128,7 +165,7 @@ async function doSave() {
   try {
     const b64 = canvas.toDataURL('image/png').split(',', 2)[1]
     const ok = await saveBase64File(b64, 'screenshot.png')
-    if (ok) await finishScreenshot()
+    if (ok) await close()
   } catch (e: any) {
     toast.value = `保存失败：${String(e?.message || e)}`
   }
@@ -141,7 +178,7 @@ async function doCopy() {
     const b64 = canvas.toDataURL('image/png').split(',', 2)[1]
     const image = await Image.fromBytes(b64ToBytes(b64))
     await writeImage(image)
-    await finishScreenshot()
+    await close()
   } catch (e: any) {
     toast.value = `复制失败：${String(e?.message || e)}`
   }
@@ -157,13 +194,21 @@ async function doDecode() {
   if (res?.data) {
     try { await navigator.clipboard.writeText(res.data) } catch { /* ignore */ }
     toast.value = `识别成功（已复制）：${res.data.slice(0, 80)}`
-    setTimeout(() => finishScreenshot(), 1200)
+    setTimeout(() => close(), 1200)
   } else {
     toast.value = '所选区域未识别到二维码'
   }
 }
 
-function cancel() { void finishScreenshot() }
+/** 结束：先清空画面并绘制空白（避免复用窗口残留本次截图），再隐藏覆盖层。 */
+async function close() {
+  capture.value = null
+  await nextTick()
+  await new Promise<void>((r) => requestAnimationFrame(() => r()))
+  await finishScreenshot(restoreMain)
+}
+
+function cancel() { void close() }
 
 // ── 样式计算 ──────────────────────────────────────────────
 const selStyle = computed(() => ({
