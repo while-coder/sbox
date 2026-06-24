@@ -10,13 +10,18 @@
     "macos:build": "tauri build",
     "windows:build": "tauri build",
     "linux:build": "tauri build",
-    "release": "node scripts/release.cjs"
+    "release": "node scripts/release.cjs",
+    "docs:dev": "vitepress dev docs-site",
+    "docs:build": "vitepress build docs-site",
+    "docs:preview": "vitepress preview docs-site"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
+    "js-yaml": "^5.1.0",
+    "smol-toml": "^1.7.0",
     "vue": "^3.5.38",
     "vue-router": "^5.1.0"
   },
@@ -25,7 +30,8 @@
     "@vitejs/plugin-vue": "^6.0.7",
     "esbuild": "^0.28.1",
     "typescript": "^6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitepress": "^1.6.3"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -1,7 +1,10 @@
 dist/
+docs/
 node_modules/
 src-tauri/target/
 src-tauri/gen/
+docs-site/.vitepress/cache
+docs-site/.vitepress/dist
 
 # Secrets — never commit (tauri-updater.key 等)
 /secrets/
