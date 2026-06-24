@@ -47,15 +47,24 @@ export async function ensureOverlay(): Promise<WebviewWindow> {
 export async function startScreenshot(): Promise<void> {
   const main = getCurrentWindow()
   const wasVisible = main.label === 'main' ? await main.isVisible() : false
-  if (wasVisible) {
-    await main.hide()
-    // 等窗口真正从屏幕消失再截，避免把自己截进去
-    await new Promise((r) => setTimeout(r, 120))
+  try {
+    if (wasVisible) {
+      await main.hide()
+      // 等窗口真正从屏幕消失再截，避免把自己截进去
+      await new Promise((r) => setTimeout(r, 120))
+    }
+    await invoke('screenshot_capture')
+    await ensureOverlay()
+    // 覆盖层收到后自行刷新画面、重置选区并 show
+    await emit(CAPTURE_READY, { restoreMain: wasVisible })
+  } catch (e) {
+    if (wasVisible) {
+      await main.show()
+      await main.setFocus()
+    }
+    console.error('截图失败：', e)
+    throw e
   }
-  await invoke('screenshot_capture')
-  await ensureOverlay()
-  // 覆盖层收到后自行刷新画面、重置选区并 show
-  await emit(CAPTURE_READY, { restoreMain: wasVisible })
 }
 
 /** 覆盖层结束（保存/复制/取消）后调用：隐藏覆盖层，按需恢复主窗口。 */

@@ -37,6 +37,9 @@ image = { version = "0.25", default-features = false, features = [
 resvg = "0.47"          # 纯 Rust SVG 栅格化（re-export usvg / tiny-skia）
 webp = "0.3"            # libwebp 源码编译，支持有损质量编码，无系统依赖
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
 # dev 下也优化依赖（PNG 编码 / 截图捕获等），显著加快 tauri dev 的截图速度；
 # 只优化依赖、不优化本 crate，增量编译仍快。
 [profile.dev.package."*"]

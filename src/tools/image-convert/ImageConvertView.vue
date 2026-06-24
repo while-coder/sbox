@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
-import { invoke } from '@tauri-apps/api/core'
 import { join } from '@tauri-apps/api/path'
 import {
-  OUTPUT_FORMATS, INPUT_HINT, fileToBase64, extOf, convert, formatBytes,
-  type ConvertResult,
+  OUTPUT_FORMATS, INPUT_HINT, fileToBase64, extOf, convertToFile, formatBytes,
+  type ConvertFileResult,
 } from './image-convert'
-import { saveBase64File } from '../../save'
 
 interface Item {
   id: number
@@ -18,7 +16,7 @@ interface Item {
   srcBroken: boolean    // 浏览器无法预览（如 HEIC）
   status: 'pending' | 'busy' | 'done' | 'error'
   error: string
-  result: ConvertResult | null
+  result: ConvertFileResult | null
 }
 
 const items = ref<Item[]>([])
@@ -34,8 +32,8 @@ const keepAspect = ref(true)
 
 const targetFmt = computed(() => OUTPUT_FORMATS.find(f => f.value === target.value)!)
 const isLossy = computed(() => targetFmt.value?.lossy ?? false)
-const hasPending = computed(() => items.value.some(i => i.status === 'pending' || i.status === 'error'))
-const doneItems = computed(() => items.value.filter(i => i.status === 'done' && i.result))
+const isBusy = computed(() => items.value.some(i => i.status === 'busy'))
+const canConvert = computed(() => items.value.length > 0 && !isBusy.value)
 
 // ── 输入 ──────────────────────────────────────────────────
 function addFiles(files: FileList | File[]) {
@@ -101,12 +99,13 @@ function buildOptions() {
   }
 }
 
-async function convertItem(item: Item) {
+async function convertItem(item: Item, outputPath: string) {
   item.status = 'busy'
   item.error = ''
+  item.result = null
   try {
     const b64 = await fileToBase64(item.file)
-    item.result = await convert(b64, item.ext, buildOptions())
+    item.result = await convertToFile(b64, item.ext, outputPath, buildOptions())
     item.status = 'done'
   } catch (e: any) {
     item.status = 'error'
@@ -114,34 +113,35 @@ async function convertItem(item: Item) {
   }
 }
 
-async function convertAll() {
-  error.value = ''
+function buildOutputNames(): Map<number, string> {
+  const used = new Set<string>()
+  const names = new Map<number, string>()
+  const ext = targetFmt.value.ext
   for (const item of items.value) {
-    if (item.status === 'pending' || item.status === 'error') await convertItem(item)
+    const base = item.name || 'image'
+    let outputName = `${base}.${ext}`
+    let suffix = 2
+    while (used.has(outputName.toLowerCase())) {
+      outputName = `${base}-${suffix}.${ext}`
+      suffix += 1
+    }
+    used.add(outputName.toLowerCase())
+    names.set(item.id, outputName)
   }
+  return names
 }
 
-// ── 保存 ──────────────────────────────────────────────────
-function dataUrl(r: ConvertResult): string {
-  return `data:${r.mime};base64,${r.base64}`
-}
-
-async function saveItem(item: Item) {
-  if (!item.result) return
-  try {
-    await saveBase64File(item.result.base64, `${item.name}.${targetFmt.value.ext}`)
-  } catch (e: any) { error.value = String(e?.message || e) }
-}
-
-async function saveAll() {
-  if (!doneItems.value.length) return
+async function convertAll() {
+  if (!items.value.length || isBusy.value) return
+  error.value = ''
   try {
     const dir = await open({ directory: true, title: '选择保存目录' })
     if (!dir || typeof dir !== 'string') return
-    for (const item of doneItems.value) {
-      if (!item.result) continue
-      const path = await join(dir, `${item.name}.${targetFmt.value.ext}`)
-      await invoke('save_base64_file', { path, base64: item.result.base64 })
+    const outputNames = buildOutputNames()
+    for (const item of items.value) {
+      const outputName = outputNames.get(item.id) ?? `${item.name || 'image'}.${targetFmt.value.ext}`
+      const outputPath = await join(dir, outputName)
+      await convertItem(item, outputPath)
     }
   } catch (e: any) { error.value = String(e?.message || e) }
 }
@@ -150,8 +150,8 @@ function statusText(item: Item): string {
   switch (item.status) {
     case 'busy': return '转换中…'
     case 'done': return item.result
-      ? `${item.result.width}×${item.result.height} · ${formatBytes(item.result.bytes)}`
-      : '完成'
+      ? `已保存 · ${item.result.width}×${item.result.height} · ${formatBytes(item.result.bytes)}`
+      : '已保存'
     case 'error': return item.error || '失败'
     default: return '待转换'
   }
@@ -187,11 +187,12 @@ function statusText(item: Item): string {
 
             <div class="item-body">
               <div class="item-name" :title="item.file.name">{{ item.file.name }}</div>
-              <div class="item-status" :class="item.status">{{ statusText(item) }}</div>
+              <div class="item-status" :class="item.status" :title="item.result?.path || item.error">
+                {{ statusText(item) }}
+              </div>
             </div>
 
             <div class="item-actions">
-              <button v-if="item.status === 'done'" class="link-btn" @click="saveItem(item)">保存…</button>
               <button class="link-btn" @click="removeItem(item.id)">移除</button>
             </div>
           </li>
@@ -226,9 +227,8 @@ function statusText(item: Item): string {
         </div>
 
         <div class="actions">
-          <button class="btn" :disabled="!hasPending" @click="convertAll">转换</button>
-          <button class="btn btn-outline" :disabled="!doneItems.length" @click="saveAll">
-            全部保存…（{{ doneItems.length }}）
+          <button class="btn" :disabled="!canConvert" @click="convertAll">
+            {{ isBusy ? '转换中…' : '选择目录并转换' }}
           </button>
         </div>
       </section>

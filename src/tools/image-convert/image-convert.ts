@@ -48,6 +48,14 @@ export interface ConvertResult {
   bytes: number
 }
 
+export interface ConvertFileResult {
+  width: number
+  height: number
+  mime: string
+  bytes: number
+  path: string
+}
+
 /** 读取文件为纯 base64（不含 data: 前缀）。 */
 export function fileToBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -74,6 +82,16 @@ export function convert(
   options: ConvertOptions,
 ): Promise<ConvertResult> {
   return invoke<ConvertResult>('image_convert', { inputBase64, inputExt, options })
+}
+
+/** 调用后端转换并直接写入文件。 */
+export function convertToFile(
+  inputBase64: string,
+  inputExt: string,
+  outputPath: string,
+  options: ConvertOptions,
+): Promise<ConvertFileResult> {
+  return invoke<ConvertFileResult>('image_convert_to_file', { inputBase64, inputExt, outputPath, options })
 }
 
 /** 人类可读字节数。 */

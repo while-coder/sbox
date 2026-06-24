@@ -1,5 +1,8 @@
 dist/
 docs/
+.claude/
+.codex/
+.agents/
 node_modules/
 src-tauri/target/
 src-tauri/gen/

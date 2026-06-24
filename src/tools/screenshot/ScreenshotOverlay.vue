@@ -53,10 +53,15 @@ onMounted(async () => {
     resetSel()
     await nextTick()
     const w = getCurrentWindow()
-    // 把覆盖层精确定位/铺满“被截的那块屏”（物理像素），多屏才不会错位
-    if (cap) {
-      await w.setPosition(new PhysicalPosition(cap.x, cap.y))
-      await w.setSize(new PhysicalSize(cap.width, cap.height))
+    // 把覆盖层精确定位/铺满“被截的那块屏”（物理像素），多屏才不会错位。
+    // 定位失败也要保证 show，否则覆盖层永不显示（表现为按快捷键后毫无反应）。
+    try {
+      if (cap) {
+        await w.setPosition(new PhysicalPosition(cap.x, cap.y))
+        await w.setSize(new PhysicalSize(cap.width, cap.height))
+      }
+    } catch (err) {
+      console.error('覆盖层定位失败：', err)
     }
     await w.show()
     await w.setFocus()

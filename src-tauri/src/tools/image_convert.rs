@@ -4,6 +4,7 @@
 use base64::Engine;
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, ImageFormat, RgbaImage};
+use std::fs;
 use std::io::Cursor;
 
 #[derive(serde::Deserialize)]
@@ -33,8 +34,24 @@ pub struct ConvertResult {
     pub bytes: usize,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertFileResult {
+    pub width: u32,
+    pub height: u32,
+    pub mime: String,
+    /// 编码后字节数
+    pub bytes: usize,
+    /// 输出文件路径
+    pub path: String,
+}
+
 /// 把 SVG 字节栅格化为 RGBA 图。width/height 给定时按其渲染，否则用 SVG 固有尺寸。
-fn decode_svg(bytes: &[u8], width: Option<u32>, height: Option<u32>) -> Result<DynamicImage, String> {
+fn decode_svg(
+    bytes: &[u8],
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<DynamicImage, String> {
     use resvg::tiny_skia;
     use resvg::usvg;
 
@@ -74,7 +91,12 @@ fn is_svg(ext: &str, bytes: &[u8]) -> bool {
 }
 
 /// 解码任意输入为 DynamicImage。HEIC/AVIF 暂不支持（需原生库）。
-fn decode(bytes: &[u8], ext: &str, width: Option<u32>, height: Option<u32>) -> Result<DynamicImage, String> {
+fn decode(
+    bytes: &[u8],
+    ext: &str,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<DynamicImage, String> {
     if is_svg(ext, bytes) {
         decode_svg(bytes, width, height)
     } else {
@@ -106,7 +128,11 @@ fn maybe_resize(img: DynamicImage, opts: &ConvertOptions) -> DynamicImage {
 }
 
 /// 编码到目标格式，返回 (bytes, mime)。
-fn encode(img: &DynamicImage, target: &str, quality: Option<u8>) -> Result<(Vec<u8>, String), String> {
+fn encode(
+    img: &DynamicImage,
+    target: &str,
+    quality: Option<u8>,
+) -> Result<(Vec<u8>, String), String> {
     let q = quality.unwrap_or(85).clamp(1, 100);
     match target {
         "jpeg" | "jpg" => {
@@ -139,12 +165,13 @@ fn encode(img: &DynamicImage, target: &str, quality: Option<u8>) -> Result<(Vec<
             let mut buf = Vec::new();
             // ICO 上限 256×256，超出时先缩放。
             let src;
-            let img_ref: &DynamicImage = if fmt == ImageFormat::Ico && (img.width() > 256 || img.height() > 256) {
-                src = img.resize(256, 256, image::imageops::FilterType::Lanczos3);
-                &src
-            } else {
-                img
-            };
+            let img_ref: &DynamicImage =
+                if fmt == ImageFormat::Ico && (img.width() > 256 || img.height() > 256) {
+                    src = img.resize(256, 256, image::imageops::FilterType::Lanczos3);
+                    &src
+                } else {
+                    img
+                };
             img_ref
                 .write_to(&mut Cursor::new(&mut buf), fmt)
                 .map_err(|e| format!("编码失败: {e}"))?;
@@ -163,6 +190,25 @@ fn encode(img: &DynamicImage, target: &str, quality: Option<u8>) -> Result<(Vec<
     }
 }
 
+fn convert_bytes(
+    input_base64: &str,
+    input_ext: Option<String>,
+    options: &ConvertOptions,
+) -> Result<(u32, u32, Vec<u8>, String), String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(input_base64.trim())
+        .map_err(|e| format!("base64 解码失败: {e}"))?;
+    let ext = input_ext.unwrap_or_default().to_ascii_lowercase();
+
+    let img = decode(&bytes, &ext, options.width, options.height)?;
+    let img = maybe_resize(img, options);
+    let width = img.width();
+    let height = img.height();
+
+    let (out, mime) = encode(&img, &options.target.to_ascii_lowercase(), options.quality)?;
+    Ok((width, height, out, mime))
+}
+
 /// 转换单张图片：base64 入，base64 出。
 #[tauri::command]
 pub fn image_convert(
@@ -170,20 +216,31 @@ pub fn image_convert(
     input_ext: Option<String>,
     options: ConvertOptions,
 ) -> Result<ConvertResult, String> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(input_base64.trim())
-        .map_err(|e| format!("base64 解码失败: {e}"))?;
-    let ext = input_ext.unwrap_or_default().to_ascii_lowercase();
-
-    let img = decode(&bytes, &ext, options.width, options.height)?;
-    let img = maybe_resize(img, &options);
-
-    let (out, mime) = encode(&img, &options.target.to_ascii_lowercase(), options.quality)?;
+    let (width, height, out, mime) = convert_bytes(&input_base64, input_ext, &options)?;
     Ok(ConvertResult {
-        width: img.width(),
-        height: img.height(),
+        width,
+        height,
         bytes: out.len(),
         base64: base64::engine::general_purpose::STANDARD.encode(&out),
         mime,
+    })
+}
+
+/// 转换单张图片并直接写入指定路径：base64 入，文件出。
+#[tauri::command]
+pub fn image_convert_to_file(
+    input_base64: String,
+    input_ext: Option<String>,
+    output_path: String,
+    options: ConvertOptions,
+) -> Result<ConvertFileResult, String> {
+    let (width, height, out, mime) = convert_bytes(&input_base64, input_ext, &options)?;
+    fs::write(&output_path, &out).map_err(|e| format!("写入失败: {e}"))?;
+    Ok(ConvertFileResult {
+        width,
+        height,
+        bytes: out.len(),
+        mime,
+        path: output_path,
     })
 }
