@@ -58,6 +58,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .manage(tools::screenshot::CaptureState::default())
         .setup(|app| {
             setup_tray(app)?;
             Ok(())
@@ -69,6 +71,8 @@ pub fn run() {
             tools::keystore_gen::keystore_check_java,
             tools::keystore_gen::keystore_generate,
             tools::save_file::save_base64_file,
+            tools::screenshot::screenshot_capture,
+            tools::screenshot::screenshot_latest,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sbox");

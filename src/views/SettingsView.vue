@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { settings, saveSettings } from '../settings'
-import { bossKeyStatus } from '../system'
+import { bossKeyStatus, screenshotKeyStatus } from '../system'
 
-const recording = ref(false)
+type KeyTarget = 'bossKey' | 'screenshotKey'
+const recordingTarget = ref<KeyTarget | null>(null)
 
 /** 几个常用预设组合键。 */
 const PRESETS = [
@@ -11,6 +12,12 @@ const PRESETS = [
   'CommandOrControl+Shift+X',
   'CommandOrControl+Alt+B',
   'Alt+Q',
+]
+const SHOT_PRESETS = [
+  'CommandOrControl+Shift+A',
+  'CommandOrControl+Shift+S',
+  'CommandOrControl+Alt+A',
+  'PrintScreen',
 ]
 
 /** 把键名转为 Tauri 加速键 token；非法/纯修饰键返回空串。 */
@@ -35,7 +42,8 @@ function keyToken(e: KeyboardEvent): string {
 }
 
 function onRecordKeydown(e: KeyboardEvent) {
-  if (!recording.value) return
+  const target = recordingTarget.value
+  if (!target) return
   e.preventDefault()
   const token = keyToken(e)
   if (!token) return // 还在按修饰键，等主键
@@ -45,13 +53,13 @@ function onRecordKeydown(e: KeyboardEvent) {
   if (e.shiftKey) mods.push('Shift')
   if (e.altKey) mods.push('Alt')
 
-  settings.bossKey = [...mods, token].join('+')
-  recording.value = false
+  settings[target] = [...mods, token].join('+')
+  recordingTarget.value = null
   saveSettings()
 }
 
-function applyPreset(combo: string) {
-  settings.bossKey = combo
+function applyPreset(target: KeyTarget, combo: string) {
+  settings[target] = combo
   saveSettings()
 }
 
@@ -96,13 +104,13 @@ function onToggle() {
         </div>
         <button
           class="recorder"
-          :class="{ recording }"
+          :class="{ recording: recordingTarget === 'bossKey' }"
           :disabled="!settings.bossKeyEnabled"
-          @click="recording = true"
-          @blur="recording = false"
+          @click="recordingTarget = 'bossKey'"
+          @blur="recordingTarget = null"
           @keydown="onRecordKeydown"
         >
-          {{ recording ? '按下组合键…' : settings.bossKey }}
+          {{ recordingTarget === 'bossKey' ? '按下组合键…' : settings.bossKey }}
         </button>
       </div>
 
@@ -114,7 +122,7 @@ function onToggle() {
           class="preset-chip"
           :class="{ active: settings.bossKey === p }"
           :disabled="!settings.bossKeyEnabled"
-          @click="applyPreset(p)"
+          @click="applyPreset('bossKey', p)"
         >{{ p }}</button>
       </div>
 
@@ -124,6 +132,56 @@ function onToggle() {
         :class="bossKeyStatus.state"
       >
         <span class="status-dot"></span>{{ bossKeyStatus.message }}
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <div class="row-text">
+          <div class="row-label">启用截图快捷键</div>
+          <div class="row-desc">全局快捷键，一键发起全屏框选截图。</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" v-model="settings.screenshotEnabled" @change="onToggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="row" :class="{ disabled: !settings.screenshotEnabled }">
+        <div class="row-text">
+          <div class="row-label">快捷键</div>
+          <div class="row-desc">点击下方按钮后按下组合键录制。</div>
+        </div>
+        <button
+          class="recorder"
+          :class="{ recording: recordingTarget === 'screenshotKey' }"
+          :disabled="!settings.screenshotEnabled"
+          @click="recordingTarget = 'screenshotKey'"
+          @blur="recordingTarget = null"
+          @keydown="onRecordKeydown"
+        >
+          {{ recordingTarget === 'screenshotKey' ? '按下组合键…' : settings.screenshotKey }}
+        </button>
+      </div>
+
+      <div class="presets" :class="{ disabled: !settings.screenshotEnabled }">
+        <span class="presets-label">预设：</span>
+        <button
+          v-for="p in SHOT_PRESETS"
+          :key="p"
+          class="preset-chip"
+          :class="{ active: settings.screenshotKey === p }"
+          :disabled="!settings.screenshotEnabled"
+          @click="applyPreset('screenshotKey', p)"
+        >{{ p }}</button>
+      </div>
+
+      <div
+        v-if="settings.screenshotEnabled && screenshotKeyStatus.message"
+        class="status"
+        :class="screenshotKeyStatus.state"
+      >
+        <span class="status-dot"></span>{{ screenshotKeyStatus.message }}
       </div>
     </section>
 

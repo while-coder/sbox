@@ -13,6 +13,7 @@ export default createRouter({
   routes: [
     { path: '/', name: 'home', component: HomeView },
     { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
+    { path: '/screenshot-overlay', name: 'screenshot-overlay', component: () => import('./tools/screenshot/ScreenshotOverlay.vue') },
     ...toolRoutes,
   ],
 })

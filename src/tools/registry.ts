@@ -93,6 +93,14 @@ export const TOOLS: ToolDef[] = [
     component: () => import('./qrcode/QrView.vue'),
   },
   {
+    key: 'screenshot',
+    label: '截图',
+    description: '全屏框选截图，保存 / 复制到剪贴板 / 识别二维码，支持全局快捷键',
+    category: 'media',
+    keywords: ['screenshot', 'capture', 'snip', '截图', '截屏', '框选', '快捷键'],
+    component: () => import('./screenshot/ScreenshotView.vue'),
+  },
+  {
     key: 'keystore-gen',
     label: 'Keystore 生成',
     description: '生成 Android APK 签名 keystore（PKCS12），自动给出 GitHub Actions 所需的 4 个 secret',

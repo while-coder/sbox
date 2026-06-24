@@ -2,6 +2,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { computed, onMounted } from 'vue'
 import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import UpdaterDialog from './UpdaterDialog.vue'
 import { loadSettings } from './settings'
 import { setupCloseToTray, applyBossKey, watchBossKey } from './system'
@@ -10,8 +11,11 @@ const route = useRoute()
 const router = useRouter()
 const isHome = computed(() => route.path === '/')
 const isSettings = computed(() => route.path === '/settings')
+// 截图覆盖层是独立全屏窗口，不渲染应用外壳、也不重复初始化系统副作用
+const isOverlay = computed(() => route.path === '/screenshot-overlay')
 
 onMounted(async () => {
+  if (getCurrentWindow().label !== 'main') return
   loadSettings()
   await setupCloseToTray()
   await applyBossKey()
@@ -23,7 +27,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="app">
+  <!-- 截图覆盖层：全屏无外壳 -->
+  <router-view v-if="isOverlay" />
+
+  <div v-else class="app">
     <UpdaterDialog />
     <header class="app-bar">
       <button v-if="!isHome" class="back" @click="router.push('/')">← 返回</button>

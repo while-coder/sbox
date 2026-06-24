@@ -11,6 +11,10 @@ export interface Settings {
   bossKeyEnabled: boolean
   /** 老板键组合，Tauri 加速键语法，如 "CommandOrControl+Shift+H" */
   bossKey: string
+  /** 是否启用截图全局快捷键 */
+  screenshotEnabled: boolean
+  /** 截图快捷键组合 */
+  screenshotKey: string
 }
 
 const STORAGE_KEY = 'sbox.settings'
@@ -19,6 +23,8 @@ const DEFAULTS: Settings = {
   closeToTray: true,
   bossKeyEnabled: true,
   bossKey: 'CommandOrControl+Shift+H',
+  screenshotEnabled: true,
+  screenshotKey: 'CommandOrControl+Shift+A',
 }
 
 /** 全局响应式设置对象，组件与副作用共享同一引用。 */
