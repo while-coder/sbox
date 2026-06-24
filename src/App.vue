@@ -1,11 +1,25 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
+import { listen } from '@tauri-apps/api/event'
 import UpdaterDialog from './UpdaterDialog.vue'
+import { loadSettings } from './settings'
+import { setupCloseToTray, applyBossKey, watchBossKey } from './system'
 
 const route = useRoute()
 const router = useRouter()
 const isHome = computed(() => route.path === '/')
+const isSettings = computed(() => route.path === '/settings')
+
+onMounted(async () => {
+  loadSettings()
+  await setupCloseToTray()
+  await applyBossKey()
+  // 改键 / 开关老板键时自动重新注册
+  watchBossKey()
+  // 托盘「设置」菜单 → 跳转设置页
+  await listen('open-settings', () => router.push('/settings'))
+})
 </script>
 
 <template>
@@ -14,6 +28,12 @@ const isHome = computed(() => route.path === '/')
     <header class="app-bar">
       <button v-if="!isHome" class="back" @click="router.push('/')">← 返回</button>
       <h1 class="title">sbox</h1>
+      <button
+        v-if="!isSettings"
+        class="settings-btn"
+        title="设置"
+        @click="router.push('/settings')"
+      >⚙</button>
     </header>
     <main class="app-main">
       <router-view />
@@ -60,6 +80,11 @@ body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang S
   font-size: 14px; padding: 4px 8px;
 }
 .back:hover { color: var(--primary-hover); }
+.settings-btn {
+  margin-left: auto; background: none; border: none; cursor: pointer;
+  font-size: 18px; line-height: 1; padding: 4px 6px; color: var(--fg-muted);
+}
+.settings-btn:hover { color: var(--primary); }
 .app-main { flex: 1; overflow: auto; padding: 20px; }
 
 button.btn {

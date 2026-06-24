@@ -17,12 +17,13 @@ export interface ToolDef {
   component: () => Promise<{ default: Component }>
 }
 
-export type CategoryKey = 'encode' | 'devtool' | 'genverify' | 'account'
+export type CategoryKey = 'encode' | 'devtool' | 'genverify' | 'media' | 'account'
 
 export const CATEGORIES: { key: CategoryKey; label: string }[] = [
   { key: 'encode', label: '编解码 / 数据' },
   { key: 'devtool', label: '开发辅助' },
   { key: 'genverify', label: '生成 / 校验' },
+  { key: 'media', label: '图像 / 媒体' },
   { key: 'account', label: '账号 / 设备' },
 ]
 
@@ -82,6 +83,14 @@ export const TOOLS: ToolDef[] = [
     category: 'genverify',
     keywords: ['checksum', 'hash', 'md5', 'sha', 'verify', '校验', '哈希', '完整性'],
     component: () => import('./checksum/ChecksumView.vue'),
+  },
+  {
+    key: 'qrcode',
+    label: '二维码生成 / 识别',
+    description: '生成二维码，或识别图片中的二维码（支持粘贴、拖拽、读取剪贴板）',
+    category: 'media',
+    keywords: ['qrcode', 'qr', '二维码', 'scan', 'decode', 'generate', '识别', '生成', '扫码', '剪贴板'],
+    component: () => import('./qrcode/QrView.vue'),
   },
   {
     key: 'keystore-gen',
