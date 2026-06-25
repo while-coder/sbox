@@ -1,12 +1,13 @@
 /**
  * 图片格式转换 —— 前端实现。
  * 解码/缩放/编码全部由 @imagemagick/magick-wasm(WASM 版 ImageMagick)在前端完成，
- * 覆盖常规位图、SVG 矢量以及 HEIC/HEIF/AVIF 等；落盘复用通用命令 save_base64_file。
+ * 输入覆盖常规位图、SVG 矢量以及 HEIC/HEIF/AVIF 等；输出不含 HEIC/HEIF（WASM 无编码 delegate）。
+ * 落盘复用通用命令 save_base64_file。
  */
 import { invoke } from '@tauri-apps/api/core'
 import {
   ImageMagick, initializeImageMagick, MagickFormat, MagickGeometry,
-  MagickColors, AlphaAction,
+  MagickColors, AlphaAction, Gravity,
 } from '@imagemagick/magick-wasm'
 // Vite：以 URL 引用包内 .wasm，运行时再加载（不打进 JS bundle）。
 import wasmUrl from '@imagemagick/magick-wasm/magick.wasm?url'
@@ -35,7 +36,8 @@ export const OUTPUT_FORMATS: OutputFormat[] = [
   { value: 'png', label: 'PNG', ext: 'png', magick: MagickFormat.Png, mime: 'image/png', lossy: false },
   { value: 'jpeg', label: 'JPEG', ext: 'jpg', magick: MagickFormat.Jpeg, mime: 'image/jpeg', lossy: true },
   { value: 'webp', label: 'WebP', ext: 'webp', magick: MagickFormat.WebP, mime: 'image/webp', lossy: true },
-  { value: 'heic', label: 'HEIC', ext: 'heic', magick: MagickFormat.Heic, mime: 'image/heic', lossy: true },
+  // 注意：magick-wasm 不含 HEIC/HEIF 编码 delegate（HEVC/x265 受专利未打进 WASM），故 HEIC 仅作输入解码，
+  // 不作为输出格式；现代高压缩输出请用无专利限制的 AVIF。
   { value: 'avif', label: 'AVIF', ext: 'avif', magick: MagickFormat.Avif, mime: 'image/avif', lossy: true },
   { value: 'gif', label: 'GIF', ext: 'gif', magick: MagickFormat.Gif, mime: 'image/gif', lossy: false },
   { value: 'bmp', label: 'BMP', ext: 'bmp', magick: MagickFormat.Bmp, mime: 'image/bmp', lossy: false },
@@ -49,12 +51,19 @@ export const OUTPUT_FORMATS: OutputFormat[] = [
 export const INPUT_HINT =
   'HEIC · HEIF · AVIF · PNG · JPEG · WebP · GIF · BMP · ICO · TIFF · TGA · QOI · PNM · DDS · HDR · EXR · SVG'
 
+/** 旋转方式:none 不转 / cw90 顺时针 / ccw90 逆时针 / r180 / exif 按 EXIF 自动转向 */
+export type RotateMode = 'none' | 'cw90' | 'ccw90' | 'r180' | 'exif'
+
 export interface ConvertOptions {
   target: string
   quality?: number
   width?: number
   height?: number
   keepAspect?: boolean
+  /** 旋转(单图用,批量默认 none/不传） */
+  rotate?: RotateMode
+  /** 裁剪到指定宽高、居中（单图用，留空不裁剪） */
+  crop?: { width: number; height: number }
 }
 
 export interface ConvertResult {
@@ -100,6 +109,19 @@ export async function convert(input: Uint8Array, options: ConvertOptions): Promi
   if (!fmt) throw new Error(`不支持的目标格式: ${options.target}`)
 
   return ImageMagick.read(input, (image): ConvertResult => {
+    // 处理顺序：先转正/旋转 → 再裁剪 → 再缩放 → 编码。
+    switch (options.rotate) {
+      case 'exif': image.autoOrient(); break
+      case 'cw90': image.rotate(90); break
+      case 'ccw90': image.rotate(-90); break
+      case 'r180': image.rotate(180); break
+    }
+
+    if (options.crop && options.crop.width > 0 && options.crop.height > 0) {
+      image.crop(options.crop.width, options.crop.height, Gravity.Center)
+      image.resetPage() // crop 会留下 page 偏移，重置避免编码异常
+    }
+
     const geo = geometryStr(options)
     if (geo) image.resize(new MagickGeometry(geo))
 
