@@ -104,8 +104,6 @@ pub fn run() {
             tools::keystore_gen::keystore_check_java,
             tools::keystore_gen::keystore_generate,
             tools::save_file::save_base64_file,
-            tools::image_convert::image_convert,
-            tools::image_convert::image_convert_to_file,
             tools::screenshot::screenshot_capture,
             tools::screenshot::screenshot_latest,
         ])

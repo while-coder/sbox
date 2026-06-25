@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 import { join } from '@tauri-apps/api/path'
 import {
-  OUTPUT_FORMATS, INPUT_HINT, fileToBase64, extOf, convertToFile, formatBytes,
+  OUTPUT_FORMATS, INPUT_HINT, extOf, convertToFile, formatBytes,
   type ConvertFileResult,
 } from './image-convert'
 
@@ -104,8 +104,8 @@ async function convertItem(item: Item, outputPath: string) {
   item.error = ''
   item.result = null
   try {
-    const b64 = await fileToBase64(item.file)
-    item.result = await convertToFile(b64, item.ext, outputPath, buildOptions())
+    const buf = new Uint8Array(await item.file.arrayBuffer())
+    item.result = await convertToFile(buf, outputPath, buildOptions())
     item.status = 'done'
   } catch (e: any) {
     item.status = 'error'
@@ -172,7 +172,7 @@ function statusText(item: Item): string {
             <label class="btn btn-outline file-label">
               选择图片
               <input type="file" multiple class="hidden-file"
-                accept="image/*,.svg,.svgz,.tga,.qoi,.dds,.exr,.hdr"
+                accept="image/*,.heic,.heif,.avif,.svg,.svgz,.tga,.qoi,.dds,.exr,.hdr"
                 @change="onFilePicked" />
             </label>
             <button class="btn btn-outline" :disabled="!items.length" @click="clearAll">清空列表</button>

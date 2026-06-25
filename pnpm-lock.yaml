@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@imagemagick/magick-wasm':
+        specifier: ^0.0.41
+        version: 0.0.41
       '@tauri-apps/api':
         specifier: ^2.11.0
         version: 2.11.1
@@ -517,6 +520,9 @@ packages:
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
+
+  '@imagemagick/magick-wasm@0.0.41':
+    resolution: {integrity: sha512-ywIISf4/8/6k9lLfHUIE/uGuZCJfDG+NEcHJ7OHvzr2w+uLCoK5cIBsp6KlpQfq/EppYiNM+NqKXFiUSbJvHZA==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -2039,6 +2045,8 @@ snapshots:
       '@iconify/types': 2.0.0
 
   '@iconify/types@2.0.0': {}
+
+  '@imagemagick/magick-wasm@0.0.41': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
