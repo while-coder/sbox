@@ -26,6 +26,7 @@
     "global-shortcut:allow-is-registered",
     "clipboard-manager:allow-write-image",
     "clipboard-manager:allow-read-image",
-    "clipboard-manager:allow-write-text"
+    "clipboard-manager:allow-write-text",
+    "log:default"
   ]
 }

@@ -15,6 +15,8 @@ export interface Settings {
   screenshotEnabled: boolean
   /** 截图快捷键组合 */
   screenshotKey: string
+  /** 截图时是否先隐藏 sbox 主窗口，避免把自己截进去 */
+  screenshotHideSelf: boolean
 }
 
 const STORAGE_KEY = 'sbox.settings'
@@ -25,6 +27,7 @@ const DEFAULTS: Settings = {
   bossKey: 'CommandOrControl+Shift+H',
   screenshotEnabled: true,
   screenshotKey: 'CommandOrControl+Shift+A',
+  screenshotHideSelf: true,
 }
 
 /** 全局响应式设置对象，组件与副作用共享同一引用。 */

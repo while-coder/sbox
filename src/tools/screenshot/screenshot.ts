@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { settings } from '../../settings'
 
 export interface Capture {
   base64: string
@@ -46,19 +47,22 @@ export async function ensureOverlay(): Promise<WebviewWindow> {
 /** 发起截图。从主窗口上下文调用（按钮或全局快捷键回调）。 */
 export async function startScreenshot(): Promise<void> {
   const main = getCurrentWindow()
-  const wasVisible = main.label === 'main' ? await main.isVisible() : false
+  // 仅当设置开启「隐藏自身」且主窗口当前可见时，才需要在截图前隐藏并在结束后恢复。
+  const shouldHide =
+    settings.screenshotHideSelf && main.label === 'main' && (await main.isVisible())
   try {
-    if (wasVisible) {
+    if (shouldHide) {
       await main.hide()
-      // 等窗口真正从屏幕消失再截，避免把自己截进去
-      await new Promise((r) => setTimeout(r, 120))
+      // 等窗口真正从屏幕消失再截，避免把自己截进去。
+      // hide() 返回不代表 DWM 已刷掉这一帧，留足时间给合成器，否则会截到 sbox 残影。
+      await new Promise((r) => setTimeout(r, 250))
     }
     await invoke('screenshot_capture')
     await ensureOverlay()
     // 覆盖层收到后自行刷新画面、重置选区并 show
-    await emit(CAPTURE_READY, { restoreMain: wasVisible })
+    await emit(CAPTURE_READY, { restoreMain: shouldHide })
   } catch (e) {
-    if (wasVisible) {
+    if (shouldHide) {
       await main.show()
       await main.setFocus()
     }

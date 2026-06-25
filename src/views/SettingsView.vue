@@ -147,6 +147,17 @@ function onToggle() {
         </label>
       </div>
 
+      <div class="row">
+        <div class="row-text">
+          <div class="row-label">截图时隐藏 sbox 窗口</div>
+          <div class="row-desc">发起截图前先隐藏主窗口，避免把 sbox 自己截进去；关闭后将连同窗口一起截取。</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" v-model="settings.screenshotHideSelf" @change="onToggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
       <div class="row" :class="{ disabled: !settings.screenshotEnabled }">
         <div class="row-text">
           <div class="row-label">快捷键</div>

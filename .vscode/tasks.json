@@ -2,6 +2,13 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "ui:kill",
+      "type": "shell",
+      "command": "npx kill-port 1421",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
       "label": "ui:dev",
       "type": "shell",
       "isBackground": true,
@@ -19,13 +26,6 @@
       }
     },
     {
-      "label": "ui:build",
-      "type": "shell",
-      "command": "pnpm",
-      "args": ["vite", "build"],
-      "options": { "cwd": "${workspaceFolder}" }
-    },
-    {
       "label": "rust:build:dev",
       "type": "shell",
       "command": "cargo",
@@ -38,8 +38,8 @@
     },
     {
       "label": "tauri:before:dev",
-      "dependsOn": ["ui:dev", "rust:build:dev"],
-      "dependsOrder": "parallel"
+      "dependsOn": ["ui:kill", "rust:build:dev", "ui:dev"],
+      "dependsOrder": "sequence"
     }
   ]
 }

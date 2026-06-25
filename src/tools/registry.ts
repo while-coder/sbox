@@ -124,6 +124,14 @@ export const TOOLS: ToolDef[] = [
     keywords: ['xiaoai', 'xiaomi', '小爱', '小米', 'login', 'cookie', '登录', 'passtoken'],
     component: () => import('./xiaoai-login/XiaoaiLoginView.vue'),
   },
+  {
+    key: 'gdrive-login',
+    label: 'Google Drive 登录',
+    description: '浏览器 OAuth 登录，导出 sbot wiki.gdrive 所需的 clientId / clientSecret / refreshToken',
+    category: 'account',
+    keywords: ['google', 'drive', 'gdrive', 'oauth', 'refresh token', '登录', '谷歌', '云盘', '授权'],
+    component: () => import('./gdrive-login/GdriveLoginView.vue'),
+  },
 ]
 
 /** 按分类分组，保持 CATEGORIES 的顺序，空分类省略。 */
