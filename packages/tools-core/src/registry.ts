@@ -1,6 +1,9 @@
 /**
- * 工具注册表 —— 单一数据源。
- * 新增工具：在此追加一条，路由（router.ts）与首页（HomeView）会自动接入。
+ * 共享工具注册表 —— 仅含可跨平台（Web / 桌面）运行的工具。
+ * 宿主（web / app）各自组合自己的完整列表：
+ *   - web 直接用 WEB_TOOLS
+ *   - app 用 [...WEB_TOOLS, ...NATIVE_TOOLS]
+ * 路由与首页（HomeView）按传入的列表自动接入。
  */
 import type { Component } from 'vue'
 
@@ -27,14 +30,15 @@ export const CATEGORIES: { key: CategoryKey; label: string }[] = [
   { key: 'account', label: '账号 / 设备' },
 ]
 
-export const TOOLS: ToolDef[] = [
+/** 可上线（纯前端 / 平台适配）的工具，Web 与桌面共用。 */
+export const WEB_TOOLS: ToolDef[] = [
   {
     key: 'codec',
     label: '编解码工具',
     description: 'Base64 / URL / Hex / HTML / Unicode / JSON 转换，文件与文本的 MD5 / SHA 哈希',
     category: 'encode',
     keywords: ['base64', 'url', 'hex', 'html', 'unicode', 'json', 'md5', 'sha', 'hash', 'encode', 'decode', '编码', '解码', '哈希', '文件'],
-    component: () => import('./codec/CodecView.vue'),
+    component: () => import('./tools/codec/CodecView.vue'),
   },
   {
     key: 'json',
@@ -42,7 +46,7 @@ export const TOOLS: ToolDef[] = [
     description: '美化、压缩、按键排序，树状查看并复制单条属性的值或路径',
     category: 'encode',
     keywords: ['json', 'format', 'beautify', 'minify', 'tree', '美化', '压缩', '格式化', '排序', '路径'],
-    component: () => import('./json/JsonView.vue'),
+    component: () => import('./tools/json/JsonView.vue'),
   },
   {
     key: 'json-convert',
@@ -50,7 +54,7 @@ export const TOOLS: ToolDef[] = [
     description: '三种配置格式互转与格式化校验，源格式可自动检测',
     category: 'encode',
     keywords: ['json', 'yaml', 'yml', 'toml', 'convert', '转换', '格式化', 'format', 'validate', '校验', '自动检测'],
-    component: () => import('./json-convert/JsonConvertView.vue'),
+    component: () => import('./tools/json-convert/JsonConvertView.vue'),
   },
   {
     key: 'jwt',
@@ -58,7 +62,7 @@ export const TOOLS: ToolDef[] = [
     description: '解析 JWT 的 header 与 payload，时间声明转可读时间（不校验签名）',
     category: 'devtool',
     keywords: ['jwt', 'token', 'jws', 'bearer', '解码', 'decode', 'claims'],
-    component: () => import('./jwt/JwtView.vue'),
+    component: () => import('./tools/jwt/JwtView.vue'),
   },
   {
     key: 'timestamp',
@@ -66,7 +70,7 @@ export const TOOLS: ToolDef[] = [
     description: 'Unix 时间戳与日期互转、相对时间与时区换算',
     category: 'devtool',
     keywords: ['timestamp', 'unix', 'epoch', 'date', 'timezone', '时间戳', '时区', '日期'],
-    component: () => import('./timestamp/TimestampView.vue'),
+    component: () => import('./tools/timestamp/TimestampView.vue'),
   },
   {
     key: 'random-gen',
@@ -74,7 +78,7 @@ export const TOOLS: ToolDef[] = [
     description: '基于强随机生成密码、UUID 与随机字符串',
     category: 'genverify',
     keywords: ['random', 'password', 'uuid', 'guid', 'secret', '密码', '随机', '生成'],
-    component: () => import('./random-gen/RandomGenView.vue'),
+    component: () => import('./tools/random-gen/RandomGenView.vue'),
   },
   {
     key: 'checksum',
@@ -82,7 +86,7 @@ export const TOOLS: ToolDef[] = [
     description: '计算文件 / 文本哈希并与期望值比对，确认完整性',
     category: 'genverify',
     keywords: ['checksum', 'hash', 'md5', 'sha', 'verify', '校验', '哈希', '完整性'],
-    component: () => import('./checksum/ChecksumView.vue'),
+    component: () => import('./tools/checksum/ChecksumView.vue'),
   },
   {
     key: 'qrcode',
@@ -90,15 +94,7 @@ export const TOOLS: ToolDef[] = [
     description: '生成二维码，或识别图片中的二维码（支持粘贴、拖拽、读取剪贴板）',
     category: 'media',
     keywords: ['qrcode', 'qr', '二维码', 'scan', 'decode', 'generate', '识别', '生成', '扫码', '剪贴板'],
-    component: () => import('./qrcode/QrView.vue'),
-  },
-  {
-    key: 'screenshot',
-    label: '截图',
-    description: '全屏框选截图，保存 / 复制到剪贴板 / 识别二维码，支持全局快捷键',
-    category: 'media',
-    keywords: ['screenshot', 'capture', 'snip', '截图', '截屏', '框选', '快捷键'],
-    component: () => import('./screenshot/ScreenshotView.vue'),
+    component: () => import('./tools/qrcode/QrView.vue'),
   },
   {
     key: 'image-convert',
@@ -106,46 +102,22 @@ export const TOOLS: ToolDef[] = [
     description: 'png/jpeg/webp/avif/gif/bmp/ico/tiff 等互转，支持 HEIC 与 SVG 矢量输入；批量转换或单图编辑（旋转 / 裁剪 / 改尺寸）',
     category: 'media',
     keywords: ['image', 'convert', 'format', 'heic', 'heif', 'avif', 'svg', 'ico', 'webp', 'png', 'jpeg', 'tiff', 'bmp', 'gif', '图片', '转换', '格式', '缩放', '批量', '旋转', '裁剪', '单图', 'rotate', 'crop', 'resize'],
-    component: () => import('./image-convert/ImageConvertView.vue'),
-  },
-  {
-    key: 'keystore-gen',
-    label: 'Keystore 生成',
-    description: '生成 Android APK 签名 keystore（PKCS12），自动给出 GitHub Actions 所需的 4 个 secret',
-    category: 'genverify',
-    keywords: ['keystore', 'android', 'apk', 'sign', 'pkcs12', 'jks', '签名', '密钥库'],
-    component: () => import('./keystore-gen/KeystoreGenView.vue'),
-  },
-  {
-    key: 'xiaoai-login',
-    label: '小爱登录',
-    description: '登录小米账号，导出 sbot channel.xiaoai 所需的 userId / passToken / loginDeviceId / deviceName',
-    category: 'account',
-    keywords: ['xiaoai', 'xiaomi', '小爱', '小米', 'login', 'cookie', '登录', 'passtoken'],
-    component: () => import('./xiaoai-login/XiaoaiLoginView.vue'),
-  },
-  {
-    key: 'gdrive-login',
-    label: 'Google Drive 登录',
-    description: '浏览器 OAuth 登录，导出 sbot wiki.gdrive 所需的 clientId / clientSecret / refreshToken',
-    category: 'account',
-    keywords: ['google', 'drive', 'gdrive', 'oauth', 'refresh token', '登录', '谷歌', '云盘', '授权'],
-    component: () => import('./gdrive-login/GdriveLoginView.vue'),
+    component: () => import('./tools/image-convert/ImageConvertView.vue'),
   },
 ]
 
 /** 按分类分组，保持 CATEGORIES 的顺序，空分类省略。 */
-export function toolsByCategory(): { key: CategoryKey; label: string; tools: ToolDef[] }[] {
+export function toolsByCategory(tools: ToolDef[]): { key: CategoryKey; label: string; tools: ToolDef[] }[] {
   return CATEGORIES
-    .map(c => ({ ...c, tools: TOOLS.filter(t => t.category === c.key) }))
+    .map(c => ({ ...c, tools: tools.filter(t => t.category === c.key) }))
     .filter(g => g.tools.length > 0)
 }
 
 /** 模糊搜索：匹配 label / description / keywords（大小写不敏感）。 */
-export function searchTools(query: string): ToolDef[] {
+export function searchTools(tools: ToolDef[], query: string): ToolDef[] {
   const q = query.trim().toLowerCase()
-  if (!q) return TOOLS
-  return TOOLS.filter(t => {
+  if (!q) return tools
+  return tools.filter(t => {
     const haystack = [t.label, t.description, ...t.keywords].join(' ').toLowerCase()
     return q.split(/\s+/).every(term => haystack.includes(term))
   })

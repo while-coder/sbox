@@ -4,7 +4,8 @@ import {
   generateQrDataUrl, decodeQrFromBlob, readClipboardImage,
   type ErrorLevel,
 } from './qr'
-import { saveBase64File } from '../../save'
+import { base64ToBytes } from '../codec/codec'
+import { getPlatform } from '../../platform'
 
 type Tab = 'gen' | 'scan'
 const activeTab = ref<Tab>('gen')
@@ -36,7 +37,7 @@ async function savePng() {
   if (!qrDataUrl.value) return
   try {
     const b64 = qrDataUrl.value.split(',', 2)[1]
-    await saveBase64File(b64, 'qrcode.png')
+    await getPlatform().saveBinary(base64ToBytes(b64), 'qrcode.png', 'image/png')
   } catch (e: any) { error.value = String(e?.message || e) }
 }
 

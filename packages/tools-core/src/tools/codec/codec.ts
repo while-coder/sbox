@@ -16,11 +16,26 @@ export function stringToBase64(text: string): string {
     return btoa(binary)
 }
 
-export function base64ToString(b64: string): string {
-    const binary = atob(b64)
+/** Uint8Array → base64（分块避免大数组爆栈）。 */
+export function bytesToBase64(bytes: Uint8Array): string {
+    let binary = ''
+    const chunk = 0x8000
+    for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+    }
+    return btoa(binary)
+}
+
+/** base64 → Uint8Array（原始字节）。 */
+export function base64ToBytes(b64: string): Uint8Array {
+    const binary = atob(b64.trim())
     const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    return new TextDecoder().decode(bytes)
+    return bytes
+}
+
+export function base64ToString(b64: string): string {
+    return new TextDecoder().decode(base64ToBytes(b64))
 }
 
 export function base64ToBase64Url(b64: string): string {

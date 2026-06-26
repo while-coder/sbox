@@ -2,9 +2,8 @@
  * 图片格式转换 —— 前端实现。
  * 解码/缩放/编码全部由 @imagemagick/magick-wasm(WASM 版 ImageMagick)在前端完成，
  * 输入覆盖常规位图、SVG 矢量以及 HEIC/HEIF/AVIF 等；输出不含 HEIC/HEIF（WASM 无编码 delegate）。
- * 落盘复用通用命令 save_base64_file。
+ * 转换只产出字节；落盘交由平台层（getPlatform().saveBinary / saveBatch），与宿主解耦。
  */
-import { invoke } from '@tauri-apps/api/core'
 import {
   ImageMagick, initializeImageMagick, MagickFormat, MagickGeometry,
   MagickColors, AlphaAction, Gravity,
@@ -73,16 +72,6 @@ export interface ConvertResult {
   mime: string
 }
 
-export interface ConvertFileResult {
-  width: number
-  height: number
-  mime: string
-  /** 编码后字节数 */
-  bytes: number
-  /** 输出文件路径 */
-  path: string
-}
-
 /** 从文件名取小写扩展名（无点）。 */
 export function extOf(name: string): string {
   const i = name.lastIndexOf('.')
@@ -149,27 +138,6 @@ export async function convert(input: Uint8Array, options: ConvertOptions): Promi
       mime: fmt.mime,
     }))
   })
-}
-
-/** 转换并写入指定路径（复用 Rust 通用命令 save_base64_file）。 */
-export async function convertToFile(
-  input: Uint8Array,
-  outputPath: string,
-  options: ConvertOptions,
-): Promise<ConvertFileResult> {
-  const res = await convert(input, options)
-  await invoke('save_base64_file', { path: outputPath, base64: bytesToBase64(res.bytes) })
-  return { width: res.width, height: res.height, mime: res.mime, bytes: res.bytes.length, path: outputPath }
-}
-
-/** Uint8Array → base64（分块避免大数组爆栈）。 */
-export function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
-  }
-  return btoa(binary)
 }
 
 /** 人类可读字节数。 */

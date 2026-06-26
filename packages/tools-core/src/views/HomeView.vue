@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { toolsByCategory, searchTools, CATEGORIES, type ToolDef } from '../tools/registry'
+import { toolsByCategory, searchTools, CATEGORIES, type ToolDef } from '../registry'
+
+/** 由宿主传入完整工具列表（web 为 9 个，桌面为 13 个）。 */
+const props = defineProps<{ tools: ToolDef[] }>()
 
 const router = useRouter()
 const query = ref('')
 const searchEl = ref<HTMLInputElement | null>(null)
 
-const groups = toolsByCategory()
+const groups = computed(() => toolsByCategory(props.tools))
 const categoryLabel = (key: string) => CATEGORIES.find(c => c.key === key)?.label ?? ''
 
-const filtered = computed<ToolDef[]>(() => searchTools(query.value))
+const filtered = computed<ToolDef[]>(() => searchTools(props.tools, query.value))
 const searching = computed(() => query.value.trim().length > 0)
 
 function open(t: ToolDef) { router.push(`/${t.key}`) }

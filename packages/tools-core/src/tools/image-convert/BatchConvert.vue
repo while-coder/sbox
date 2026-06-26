@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { open } from '@tauri-apps/plugin-dialog'
-import { join } from '@tauri-apps/api/path'
+import { getPlatform, type SaveItem } from '../../platform'
 import {
-  OUTPUT_FORMATS, extOf, convertToFile, formatBytes,
-  type ConvertFileResult,
+  OUTPUT_FORMATS, extOf, convert, formatBytes,
 } from './image-convert'
+
+/** 转换完成后的轻量结果（用于展示，不含字节本身）。 */
+interface DoneInfo { width: number; height: number; bytes: number }
 
 interface Item {
   id: number
@@ -16,11 +17,12 @@ interface Item {
   srcBroken: boolean    // 浏览器无法预览（如 HEIC）
   status: 'pending' | 'busy' | 'done' | 'error'
   error: string
-  result: ConvertFileResult | null
+  result: DoneInfo | null
 }
 
 const items = ref<Item[]>([])
 const error = ref('')
+const saved = ref('')
 let seq = 0
 
 // ── 转换选项（批量仅格式 + 质量）──────────────────────────
@@ -93,17 +95,21 @@ function buildOptions() {
   }
 }
 
-async function convertItem(item: Item, outputPath: string) {
+/** 转换单个条目为字节，更新其状态；成功返回待保存项，失败返回 null。 */
+async function convertItem(item: Item, outputName: string): Promise<SaveItem | null> {
   item.status = 'busy'
   item.error = ''
   item.result = null
   try {
     const buf = new Uint8Array(await item.file.arrayBuffer())
-    item.result = await convertToFile(buf, outputPath, buildOptions())
+    const res = await convert(buf, buildOptions())
+    item.result = { width: res.width, height: res.height, bytes: res.bytes.length }
     item.status = 'done'
+    return { bytes: res.bytes, name: outputName, mime: res.mime }
   } catch (e: any) {
     item.status = 'error'
     item.error = String(e?.message || e)
+    return null
   }
 }
 
@@ -128,15 +134,19 @@ function buildOutputNames(): Map<number, string> {
 async function convertAll() {
   if (!items.value.length || isBusy.value) return
   error.value = ''
+  saved.value = ''
   try {
-    const dir = await open({ directory: true, title: '选择保存目录' })
-    if (!dir || typeof dir !== 'string') return
     const outputNames = buildOutputNames()
+    // 先全部转换为字节（逐个反馈进度），再统一交平台层落盘
+    const pending: SaveItem[] = []
     for (const item of items.value) {
       const outputName = outputNames.get(item.id) ?? `${item.name || 'image'}.${targetFmt.value.ext}`
-      const outputPath = await join(dir, outputName)
-      await convertItem(item, outputPath)
+      const out = await convertItem(item, outputName)
+      if (out) pending.push(out)
     }
+    if (!pending.length) return
+    const n = await getPlatform().saveBatch(pending)
+    saved.value = n > 0 ? `已保存 ${n} 个文件` : '已取消保存'
   } catch (e: any) { error.value = String(e?.message || e) }
 }
 
@@ -144,8 +154,8 @@ function statusText(item: Item): string {
   switch (item.status) {
     case 'busy': return '转换中…'
     case 'done': return item.result
-      ? `已保存 · ${item.result.width}×${item.result.height} · ${formatBytes(item.result.bytes)}`
-      : '已保存'
+      ? `已转换 · ${item.result.width}×${item.result.height} · ${formatBytes(item.result.bytes)}`
+      : '已转换'
     case 'error': return item.error || '失败'
     default: return '待转换'
   }
@@ -177,7 +187,7 @@ function statusText(item: Item): string {
 
           <div class="item-body">
             <div class="item-name" :title="item.file.name">{{ item.file.name }}</div>
-            <div class="item-status" :class="item.status" :title="item.result?.path || item.error">
+            <div class="item-status" :class="item.status" :title="item.error">
               {{ statusText(item) }}
             </div>
           </div>
@@ -206,8 +216,9 @@ function statusText(item: Item): string {
 
       <div class="actions">
         <button class="btn" :disabled="!canConvert" @click="convertAll">
-          {{ isBusy ? '转换中…' : '选择目录并转换' }}
+          {{ isBusy ? '转换中…' : '转换并保存' }}
         </button>
+        <p v-if="saved" class="result">{{ saved }}</p>
       </div>
     </section>
   </div>
@@ -273,6 +284,7 @@ function statusText(item: Item): string {
 .link-btn:hover:not(:disabled) { color: var(--primary); }
 
 .error { color: var(--danger); margin: 12px 0 0; font-size: 13px; }
+.result { font-size: 12px; color: var(--primary); margin: 0; }
 
 @media (max-width: 760px) {
   .layout { grid-template-columns: 1fr; }

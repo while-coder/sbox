@@ -4,7 +4,7 @@
  */
 import { save } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
-import { stringToBase64 } from './tools/codec/codec'
+import { stringToBase64 } from '@sbox/tools-core'
 
 /** 保存二进制（base64）。返回 false 表示用户取消。 */
 export async function saveBase64File(base64: string, defaultName: string): Promise<boolean> {

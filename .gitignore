@@ -4,8 +4,8 @@ docs/
 .codex/
 .agents/
 node_modules/
-src-tauri/target/
-src-tauri/gen/
+packages/app/src-tauri/target/
+packages/app/src-tauri/gen/
 docs-site/.vitepress/cache
 docs-site/.vitepress/dist
 

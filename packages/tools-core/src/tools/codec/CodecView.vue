@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import {
   stringToBase64, base64ToString, base64ToBase64Url, base64UrlToBase64,
+  base64ToBytes,
   stringToHex, hexToString,
   urlEncode, urlDecode,
   htmlEncode, htmlDecode,
@@ -11,7 +12,7 @@ import {
   fileToBase64,
   type HashAlgorithm,
 } from './codec'
-import { saveBase64File, saveTextFile } from '../../save'
+import { getPlatform } from '../../platform'
 
 type Tab = 'text' | 'base64' | 'hash'
 
@@ -100,7 +101,7 @@ async function doEncode() {
 }
 
 async function saveEncTxt() {
-  try { await saveTextFile(encB64.value, (encFile.value?.name || 'file') + '.b64.txt') }
+  try { await getPlatform().saveText(encB64.value, (encFile.value?.name || 'file') + '.b64.txt') }
   catch (e: any) { error.value = String(e?.message || e) }
 }
 
@@ -114,7 +115,7 @@ async function doDecodeSave() {
     const b64 = decB64Input.value.includes(',')
       ? decB64Input.value.split(',', 2)[1]
       : decB64Input.value
-    await saveBase64File(b64.trim(), decFilename.value || 'decoded.bin')
+    await getPlatform().saveBinary(base64ToBytes(b64), decFilename.value || 'decoded.bin', 'application/octet-stream')
   } catch (e: any) { error.value = String(e?.message || e) }
 }
 

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { open } from '@tauri-apps/plugin-dialog'
-import { join } from '@tauri-apps/api/path'
+import { getPlatform } from '../../platform'
 import {
-  OUTPUT_FORMATS, extOf, convertToFile, formatBytes,
-  type ConvertFileResult, type RotateMode,
+  OUTPUT_FORMATS, extOf, convert, formatBytes,
+  type RotateMode,
 } from './image-convert'
+
+/** 转换完成后的轻量结果（用于展示，不含字节本身）。 */
+interface DoneInfo { width: number; height: number; bytes: number }
 
 interface Picked {
   file: File
@@ -18,7 +20,7 @@ interface Picked {
 const pic = ref<Picked | null>(null)
 const error = ref('')
 const busy = ref(false)
-const result = ref<ConvertFileResult | null>(null)
+const result = ref<DoneInfo | null>(null)
 
 // ── 编辑选项 ──────────────────────────────────────────────
 const ROTATIONS: { value: RotateMode; label: string }[] = [
@@ -99,12 +101,11 @@ async function convertOne() {
   error.value = ''
   result.value = null
   try {
-    const dir = await open({ directory: true, title: '选择保存目录' })
-    if (!dir || typeof dir !== 'string') return
     const base = pic.value.name || 'image'
-    const outputPath = await join(dir, `${base}.${targetFmt.value.ext}`)
     const buf = new Uint8Array(await pic.value.file.arrayBuffer())
-    result.value = await convertToFile(buf, outputPath, buildOptions())
+    const res = await convert(buf, buildOptions())
+    const saved = await getPlatform().saveBinary(res.bytes, `${base}.${targetFmt.value.ext}`, res.mime)
+    if (saved) result.value = { width: res.width, height: res.height, bytes: res.bytes.length }
   } catch (e: any) {
     error.value = String(e?.message || e)
   } finally {
@@ -192,7 +193,7 @@ async function convertOne() {
 
       <div class="actions">
         <button class="btn" :disabled="!canConvert" @click="convertOne">
-          {{ busy ? '转换中…' : '选择目录并转换' }}
+          {{ busy ? '转换中…' : '转换并保存' }}
         </button>
         <p v-if="result" class="result">
           已保存 · {{ result.width }}×{{ result.height }} · {{ formatBytes(result.bytes) }}

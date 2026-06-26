@@ -63,7 +63,9 @@ function changelogHasVersion(file, version) {
 function main() {
   const arg = process.argv[2];
   const root = path.resolve(__dirname, '..');
-  const pkgPath = path.join(root, PKG_JSON);
+  // 版本以桌面应用包为准（tauri.conf.json 的 version 指向 packages/app/package.json）
+  const pkgRel = `packages/app/${PKG_JSON}`;
+  const pkgPath = path.join(root, 'packages', 'app', PKG_JSON);
   const pkg = readJson(pkgPath);
 
   const currentVersion = pkg.version;
@@ -112,7 +114,7 @@ function main() {
     pkg.version = nextVersion;
     writeJson(pkgPath, pkg);
 
-    run(`git add "${PKG_JSON}"`);
+    run(`git add "${pkgRel}"`);
     run(`git commit -m "chore: release v${nextVersion}"`);
   }
 
