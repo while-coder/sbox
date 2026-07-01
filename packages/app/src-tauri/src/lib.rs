@@ -104,9 +104,12 @@ pub fn run() {
             tools::keystore_gen::keystore_check_java,
             tools::keystore_gen::keystore_generate,
             tools::save_file::save_base64_file,
+            tools::screenshot::screenshot_clear,
+            tools::screenshot::screenshot_crop_pixels,
             tools::screenshot::screenshot_capture,
             tools::screenshot::screenshot_latest,
             tools::screenshot::screenshot_latest_pixels,
+            tools::screenshot::screenshot_save_selection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sbox");

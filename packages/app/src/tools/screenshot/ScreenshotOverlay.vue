@@ -4,20 +4,24 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { writeImage } from '@tauri-apps/plugin-clipboard-manager'
+import { save } from '@tauri-apps/plugin-dialog'
 import { Image } from '@tauri-apps/api/image'
 import jsQR from 'jsqr'
 import {
+  cropSelectionPixels,
   getLatestCapture,
   getLatestCapturePixels,
   finishScreenshot,
   CAPTURE_READY,
+  saveSelection,
   type Capture,
   type CapturePixels,
+  type SelectionRect,
 } from './screenshot'
-import { saveBase64File } from '../../save'
 
 const capture = ref<Capture | null>(null)
 const shotCanvas = ref<HTMLCanvasElement | null>(null)
+const active = computed(() => !!capture.value)
 
 // 选区（视口 CSS 像素）
 const sel = reactive({ x: 0, y: 0, w: 0, h: 0 })
@@ -47,27 +51,44 @@ function toClampedBytes(payload: CapturePixels): Uint8ClampedArray {
   return Uint8ClampedArray.from(payload)
 }
 
+function toBytes(payload: CapturePixels): Uint8Array {
+  if (payload instanceof ArrayBuffer) return new Uint8Array(payload)
+  if (payload instanceof Uint8Array) return payload
+  return Uint8Array.from(payload)
+}
+
 function drawCapture(cap: Capture, payload: CapturePixels) {
   const canvas = shotCanvas.value
   if (!canvas) return
   const pixels = toClampedBytes(payload)
-  const expected = cap.width * cap.height * 4
+  const expected = cap.previewWidth * cap.previewHeight * 4
   if (pixels.byteLength !== expected) {
     throw new Error(`截图像素尺寸不匹配：${pixels.byteLength} != ${expected}`)
   }
-  canvas.width = cap.width
-  canvas.height = cap.height
+  canvas.width = cap.previewWidth
+  canvas.height = cap.previewHeight
   const ctx = canvas.getContext('2d', { alpha: false })
   if (!ctx) throw new Error('无法创建截图画布')
-  ctx.putImageData(new ImageData(pixels, cap.width, cap.height), 0, 0)
+  ctx.putImageData(new ImageData(pixels, cap.previewWidth, cap.previewHeight), 0, 0)
 }
 
 onMounted(async () => {
+  document.documentElement.classList.add('screenshot-overlay-html')
+  document.body.classList.add('screenshot-overlay-body')
   window.addEventListener('keydown', onKey)
-  // 截图就绪：刷新画面、重置选区、显示并聚焦自身
+  // 截图就绪：刷新画面、重置选区、接管鼠标事件并聚焦自身
   unlisten = await listen<{ restoreMain: boolean }>(CAPTURE_READY, async (e) => {
+    const t0 = performance.now()
     restoreMain = e.payload?.restoreMain ?? false
     const cap = await getLatestCapture()
+    const metaAt = performance.now()
+    if (!cap) {
+      capture.value = null
+      resetSel()
+      await nextTick()
+      await finishScreenshot(restoreMain)
+      return
+    }
     capture.value = cap
     resetSel()
     await nextTick()
@@ -75,26 +96,33 @@ onMounted(async () => {
     // 把覆盖层精确定位/铺满“被截的那块屏”（物理像素），多屏才不会错位。
     // 定位失败也要保证 show，否则覆盖层永不显示（表现为按快捷键后毫无反应）。
     try {
-      if (cap) {
-        await w.setPosition(new PhysicalPosition(cap.x, cap.y))
-        await w.setSize(new PhysicalSize(cap.width, cap.height))
-      }
+      await w.setPosition(new PhysicalPosition(cap.x, cap.y))
+      await w.setSize(new PhysicalSize(cap.width, cap.height))
     } catch (err) {
       console.error('覆盖层定位失败：', err)
     }
-    if (cap) {
-      try {
-        drawCapture(cap, await getLatestCapturePixels())
-      } catch (err) {
-        toast.value = `截图加载失败：${String((err as Error)?.message || err)}`
-        console.error('截图画面加载失败：', err)
-      }
+    try {
+      drawCapture(cap, await getLatestCapturePixels())
+    } catch (err) {
+      toast.value = `截图加载失败：${String((err as Error)?.message || err)}`
+      console.error('截图画面加载失败：', err)
     }
-    await w.show()
+    const drawAt = performance.now()
+    if (!(await w.isVisible())) await w.show()
+    await w.setIgnoreCursorEvents(false)
     await w.setFocus()
+    console.debug('[screenshot] overlay', {
+      metaMs: Math.round(metaAt - t0),
+      drawMs: Math.round(drawAt - metaAt),
+      totalMs: Math.round(performance.now() - t0),
+      preview: `${cap.previewWidth}x${cap.previewHeight}`,
+      source: `${cap.width}x${cap.height}`,
+    })
   })
 })
 onUnmounted(() => {
+  document.documentElement.classList.remove('screenshot-overlay-html')
+  document.body.classList.remove('screenshot-overlay-body')
   window.removeEventListener('keydown', onKey)
   if (unlisten) unlisten()
 })
@@ -167,48 +195,38 @@ function onMouseUp() {
   activeHandle = ''
 }
 
-// ── 裁剪 ──────────────────────────────────────────────────
-function cropCanvas(): HTMLCanvasElement | null {
-  const source = shotCanvas.value
+// ── 选区 ──────────────────────────────────────────────────
+function selectionRect(): SelectionRect | null {
   const cap = capture.value
-  if (!source || !cap || !hasSel.value) return null
+  if (!cap || !hasSel.value) return null
   const rx = cap.width / window.innerWidth
   const ry = cap.height / window.innerHeight
-  const sx = Math.round(sel.x * rx), sy = Math.round(sel.y * ry)
-  const sw = Math.round(sel.w * rx), sh = Math.round(sel.h * ry)
-  const canvas = document.createElement('canvas')
-  canvas.width = sw; canvas.height = sh
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return null
-  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh)
-  return canvas
-}
-
-function b64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return bytes
+  const x = Math.round(sel.x * rx)
+  const y = Math.round(sel.y * ry)
+  const width = Math.max(1, Math.round(sel.w * rx))
+  const height = Math.max(1, Math.round(sel.h * ry))
+  return { x, y, width, height }
 }
 
 async function doSave() {
-  const canvas = cropCanvas()
-  if (!canvas) return
+  const selection = selectionRect()
+  if (!selection) return
   try {
-    const b64 = canvas.toDataURL('image/png').split(',', 2)[1]
-    const ok = await saveBase64File(b64, 'screenshot.png')
-    if (ok) await close()
+    const path = await save({ defaultPath: 'screenshot.png' })
+    if (!path) return
+    await saveSelection(path, selection)
+    await close()
   } catch (e: any) {
     toast.value = `保存失败：${String(e?.message || e)}`
   }
 }
 
 async function doCopy() {
-  const canvas = cropCanvas()
-  if (!canvas) return
+  const selection = selectionRect()
+  if (!selection) return
   try {
-    const b64 = canvas.toDataURL('image/png').split(',', 2)[1]
-    const image = await Image.fromBytes(b64ToBytes(b64))
+    const pixels = toBytes(await cropSelectionPixels(selection))
+    const image = await Image.new(pixels, selection.width, selection.height)
     await writeImage(image)
     await close()
   } catch (e: any) {
@@ -217,22 +235,24 @@ async function doCopy() {
 }
 
 async function doDecode() {
-  const canvas = cropCanvas()
-  if (!canvas) return
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height)
-  const res = jsQR(data.data, data.width, data.height)
-  if (res?.data) {
-    try { await navigator.clipboard.writeText(res.data) } catch { /* ignore */ }
-    toast.value = `识别成功（已复制）：${res.data.slice(0, 80)}`
-    setTimeout(() => close(), 1200)
-  } else {
-    toast.value = '所选区域未识别到二维码'
+  const selection = selectionRect()
+  if (!selection) return
+  try {
+    const pixels = toClampedBytes(await cropSelectionPixels(selection))
+    const res = jsQR(pixels, selection.width, selection.height)
+    if (res?.data) {
+      try { await navigator.clipboard.writeText(res.data) } catch { /* ignore */ }
+      toast.value = `识别成功（已复制）：${res.data.slice(0, 80)}`
+      setTimeout(() => close(), 1200)
+    } else {
+      toast.value = '所选区域未识别到二维码'
+    }
+  } catch (e: any) {
+    toast.value = `识别失败：${String(e?.message || e)}`
   }
 }
 
-/** 结束：先清空画面并绘制空白（避免复用窗口残留本次截图），再隐藏覆盖层。 */
+/** 结束：先清空画面并绘制空白，再让覆盖层进入透明穿透状态。 */
 async function close() {
   capture.value = null
   await nextTick()
@@ -271,15 +291,21 @@ const handleCursor: Record<Handle, string> = {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onBgMouseDown" @mousemove="onMouseMove" @mouseup="onMouseUp">
+  <div
+    class="overlay"
+    :class="{ active }"
+    @mousedown="onBgMouseDown"
+    @mousemove="onMouseMove"
+    @mouseup="onMouseUp"
+  >
     <canvas v-if="capture" ref="shotCanvas" class="shot" />
 
     <!-- 未选区时整屏压暗 -->
-    <div v-if="!hasSel" class="dim-full" />
+    <div v-if="capture && !hasSel" class="dim-full" />
 
     <!-- 选区 -->
     <div
-      v-if="hasSel"
+      v-if="capture && hasSel"
       class="sel"
       :style="selStyle"
       @mousedown="onBodyMouseDown"
@@ -297,25 +323,36 @@ const handleCursor: Record<Handle, string> = {
         />
       </template>
     </div>
-    <div v-if="hasSel" class="size-tag" :style="sizeStyle">{{ Math.round(sel.w) }} × {{ Math.round(sel.h) }}</div>
+    <div v-if="capture && hasSel" class="size-tag" :style="sizeStyle">{{ Math.round(sel.w) }} × {{ Math.round(sel.h) }}</div>
 
     <!-- 工具条 -->
-    <div v-if="settled" class="toolbar" :style="toolbarStyle" @mousedown.stop>
+    <div v-if="capture && settled" class="toolbar" :style="toolbarStyle" @mousedown.stop>
       <button class="tb" @click="doDecode" title="识别选区中的二维码">识别二维码</button>
       <button class="tb" @click="doCopy" title="复制到剪贴板（双击选区）">复制</button>
       <button class="tb primary" @click="doSave" title="保存为 PNG（Enter）">保存</button>
       <button class="tb ghost" @click="cancel" title="取消（Esc）">取消</button>
     </div>
 
-    <div v-if="!hasSel" class="hint">拖拽选择区域 · 选区可拖动/缩放 · 双击复制 · Esc 取消</div>
-    <div v-if="toast" class="toast" @mousedown.stop>{{ toast }}</div>
+    <div v-if="capture && !hasSel" class="hint">拖拽选择区域 · 选区可拖动/缩放 · 双击复制 · Esc 取消</div>
+    <div v-if="capture && toast" class="toast" @mousedown.stop>{{ toast }}</div>
   </div>
 </template>
 
 <style scoped>
+:global(.screenshot-overlay-html),
+:global(.screenshot-overlay-body),
+:global(.screenshot-overlay-body #app) {
+  background: transparent;
+}
+
 .overlay {
   position: fixed; inset: 0; width: 100vw; height: 100vh;
-  overflow: hidden; cursor: crosshair; user-select: none;
+  overflow: hidden; cursor: default; user-select: none;
+  pointer-events: none;
+}
+.overlay.active {
+  cursor: crosshair;
+  pointer-events: auto;
 }
 .shot { position: absolute; inset: 0; width: 100vw; height: 100vh; object-fit: fill; }
 .dim-full { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); }

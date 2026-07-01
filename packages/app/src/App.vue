@@ -24,7 +24,7 @@ onMounted(async () => {
   watchBossKey()
   // 托盘「设置」菜单 → 跳转设置页
   await listen('open-settings', () => router.push('/settings'))
-  // 预创建隐藏的截图覆盖层，后续截图只需 show()，避免冷启动 webview
+  // 预创建透明常驻的截图覆盖层，后续截图只需切换鼠标穿透，避免窗口动画和冷启动。
   void ensureOverlay()
 })
 </script>
