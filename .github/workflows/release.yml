@@ -98,7 +98,7 @@ jobs:
           tagName: v__VERSION__
           releaseName: 'sbox v__VERSION__'
           releaseBody: ${{ steps.notes.outputs.body }}
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           includeUpdaterJson: false
           args: ${{ matrix.args }}
@@ -145,7 +145,7 @@ jobs:
           ' CHANGELOG.md)
           [ -z "$BODY" ] && BODY="Release $VERSION"
           # tauri-action only sets the body when first creating the release; if an earlier
-          # run already created the draft, its body is stuck on whatever was there. Force it.
+          # matrix run already created it, its body is stuck on whatever was there. Force it.
           gh release edit "$TAG" -R "$REPO" --notes "$BODY"
 
       # 给桌面产物文件名加系统和架构标识（tauri-action 上传时不含）。
@@ -166,7 +166,8 @@ jobs:
               -e "s#^sbox_aarch64\.app\.tar\.gz#sbox_${ASSET_VERSION}_macos_arm64.app.tar.gz#" \
               -e "s#^sbox_x64\.app\.tar\.gz#sbox_${ASSET_VERSION}_macos_x64.app.tar.gz#" \
               -e "s#^sbox_[0-9][0-9.]*_amd64\.(AppImage|deb)#sbox_${ASSET_VERSION}_linux_x64.\1#" \
-              -e "s#^sbox_[0-9][0-9.]*_arm64\.(AppImage|deb)#sbox_${ASSET_VERSION}_linux_arm64.\1#" \
+              -e "s#^sbox_[0-9][0-9.]*_x64-setup\.nsis\.zip#sbox_${ASSET_VERSION}_windows_x64.nsis.zip#" \
+              -e "s#^sbox_[0-9][0-9.]*_arm64-setup\.nsis\.zip#sbox_${ASSET_VERSION}_windows_arm64.nsis.zip#" \
               -e "s#^sbox_[0-9][0-9.]*_x64-setup\.exe#sbox_${ASSET_VERSION}_windows_x64.exe#" \
               -e "s#^sbox_[0-9][0-9.]*_arm64-setup\.exe#sbox_${ASSET_VERSION}_windows_arm64.exe#")
             if [ "$new" != "$name" ]; then
@@ -184,13 +185,11 @@ jobs:
         run: |
           set -euo pipefail
           gh api "/repos/$REPO/releases/tags/$TAG" > release.json
-          rm -rf updater-signatures
-          mkdir -p updater-signatures
-          gh release download "$TAG" -R "$REPO" -p "*.sig" --dir updater-signatures --clobber
           node <<'NODE'
           const fs = require('node:fs');
-          const path = require('node:path');
+          const { execFileSync } = require('node:child_process');
 
+          const repo = process.env.REPO;
           const version = process.env.ASSET_VERSION;
           const release = JSON.parse(fs.readFileSync('release.json', 'utf8'));
           const assets = new Map(release.assets.map((asset) => [asset.name, asset]));
@@ -216,14 +215,16 @@ jobs:
 
           function signatureFor(assetName) {
             const sigName = `${assetName}.sig`;
-            if (!assets.has(sigName)) {
+            const sigAsset = assets.get(sigName);
+            if (!sigAsset) {
               throw new Error(`missing signature asset: ${sigName}`);
             }
-            const sigPath = path.join('updater-signatures', sigName);
-            if (!fs.existsSync(sigPath)) {
-              throw new Error(`signature asset was not downloaded: ${sigName}`);
-            }
-            return fs.readFileSync(sigPath, 'utf8');
+            return execFileSync('gh', [
+              'api',
+              `/repos/${repo}/releases/assets/${sigAsset.id}`,
+              '-H',
+              'Accept: application/octet-stream',
+            ], { encoding: 'utf8' }).trim();
           }
 
           function add(keys, candidates) {
@@ -248,14 +249,12 @@ jobs:
             `sbox_${version}_macos_arm64.app.tar.gz`,
           ]);
           add(['windows-x86_64', 'windows-x86_64-nsis'], [
-            `sbox_${version}_windows_x64.exe`,
-            `sbox_${version}_windows_x64.exe.zip`,
             `sbox_${version}_windows_x64.nsis.zip`,
+            `sbox_${version}_windows_x64.exe`,
           ]);
           add(['windows-aarch64', 'windows-aarch64-nsis'], [
-            `sbox_${version}_windows_arm64.exe`,
-            `sbox_${version}_windows_arm64.exe.zip`,
             `sbox_${version}_windows_arm64.nsis.zip`,
+            `sbox_${version}_windows_arm64.exe`,
           ]);
           add(['linux-x86_64', 'linux-x86_64-appimage'], [
             `sbox_${version}_linux_x64.AppImage.tar.gz`,
@@ -276,11 +275,18 @@ jobs:
             }, null, 2)}\n`,
           );
           NODE
-          gh release view updater -R "$REPO" >/dev/null 2>&1 || \
+          if gh release view updater -R "$REPO" >/dev/null 2>&1; then
+            gh release upload updater latest.json -R "$REPO" --clobber
+          else
             gh release create updater -R "$REPO" \
+              latest.json \
+              --target "$GITHUB_SHA" \
               --title "Updater Manifests" \
               --notes "Auto-maintained by CI. Hosts the updater JSON for sbox." \
               --latest=false
-          gh release upload updater latest.json -R "$REPO" --clobber
+          fi
           # 自动更新读的是固定 updater release 那份；版本 release 若残留旧 latest.json，则删除。
-          gh release delete-asset "$TAG" latest.json -R "$REPO" --yes || true
+          old_latest_id=$(gh api "/repos/$REPO/releases/tags/$TAG" --jq '.assets[] | select(.name == "latest.json") | .id' || true)
+          if [ -n "$old_latest_id" ]; then
+            gh api -X DELETE "/repos/$REPO/releases/assets/$old_latest_id" >/dev/null
+          fi
