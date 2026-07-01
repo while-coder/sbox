@@ -5,7 +5,7 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "macos:build": "tauri build",
+    "macos:build": "APPLE_SIGNING_IDENTITY=sbox-dev tauri build",
     "windows:build": "tauri build",
     "linux:build": "tauri build"
   },
