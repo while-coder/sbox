@@ -54,9 +54,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            src-tauri/target
-          key: ${{ matrix.platform }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+            packages/app/src-tauri/target
+          key: ${{ matrix.platform }}-${{ matrix.rust-target || 'default' }}-cargo-${{ hashFiles('packages/app/src-tauri/Cargo.lock') }}
           restore-keys: |
+            ${{ matrix.platform }}-${{ matrix.rust-target || 'default' }}-cargo-
             ${{ matrix.platform }}-cargo-
 
       - name: Install Linux deps
@@ -71,7 +72,11 @@ jobs:
         id: notes
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(node -p "require('./package.json').version")"
+          fi
           BODY=$(awk -v v="$VERSION" '
             $1 == "##" && $2 == v { capture=1; next }
             capture && $1 == "##" { exit }
@@ -101,20 +106,38 @@ jobs:
 
   publish-manifest:
     needs: release-desktop
-    if: ${{ !cancelled() }}
+    if: ${{ needs.release-desktop.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          else
+            VERSION="$(node -p "require('./package.json').version")"
+            TAG="v${VERSION}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Force release body from CHANGELOG
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
         shell: bash
         run: |
-          VERSION="${TAG#v}"
+          VERSION="$RELEASE_VERSION"
           BODY=$(awk -v v="$VERSION" '
             $1 == "##" && $2 == v { capture=1; next }
             capture && $1 == "##" { exit }
@@ -132,15 +155,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.release.outputs.tag }}
+          ASSET_VERSION: ${{ steps.release.outputs.version }}
         run: |
           gh api "/repos/$REPO/releases/tags/$TAG" --jq '.assets[] | "\(.id)\t\(.name)"' |
           while IFS=$'\t' read -r id name; do
             new=$(printf '%s' "$name" | sed -E \
-              -e 's/^(sbox_[0-9][0-9.]*)_(aarch64|x64)\.dmg/\1_macos_\2.dmg/' \
-              -e 's/^(sbox_[0-9][0-9.]*)_(amd64)\.(AppImage|deb)/\1_linux_\2.\3/' \
-              -e 's/^(sbox_[0-9][0-9.]*)_(x64|arm64)-setup\.exe/\1_windows_\2-setup.exe/' \
-              -e 's/^(sbox)_(aarch64|x64)\.app\.tar\.gz/\1_macos_\2.app.tar.gz/')
+              -e "s#^sbox_[0-9][0-9.]*_aarch64\.dmg#sbox_${ASSET_VERSION}_macos_arm64.dmg#" \
+              -e "s#^sbox_[0-9][0-9.]*_x64\.dmg#sbox_${ASSET_VERSION}_macos_x64.dmg#" \
+              -e "s#^sbox_aarch64\.app\.tar\.gz#sbox_${ASSET_VERSION}_macos_arm64.app.tar.gz#" \
+              -e "s#^sbox_x64\.app\.tar\.gz#sbox_${ASSET_VERSION}_macos_x64.app.tar.gz#" \
+              -e "s#^sbox_[0-9][0-9.]*_amd64\.(AppImage|deb)#sbox_${ASSET_VERSION}_linux_x64.\1#" \
+              -e "s#^sbox_[0-9][0-9.]*_arm64\.(AppImage|deb)#sbox_${ASSET_VERSION}_linux_arm64.\1#" \
+              -e "s#^sbox_[0-9][0-9.]*_x64-setup\.exe#sbox_${ASSET_VERSION}_windows_x64.exe#" \
+              -e "s#^sbox_[0-9][0-9.]*_arm64-setup\.exe#sbox_${ASSET_VERSION}_windows_arm64.exe#")
             if [ "$new" != "$name" ]; then
               echo "rename: $name -> $new"
               gh api -X PATCH "/repos/$REPO/releases/assets/$id" -f name="$new" >/dev/null
@@ -151,18 +179,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.release.outputs.tag }}
+          ASSET_VERSION: ${{ steps.release.outputs.version }}
         run: |
           if ! gh release download "$TAG" -R "$REPO" -p "latest.json" -O latest.json; then
             echo "::error::latest.json not found on release $TAG — no platform produced an updater manifest"
             exit 1
           fi
           # 上一步已重命名更新载荷文件，latest.json 里的 URL 需同步改写，否则更新器会 404。
-          # latest.json 只含 tar.gz / setup.exe / AppImage 三类载荷 URL；base64 签名字段不含这些模式，g 全局替换安全。
+          # latest.json 只含 app.tar.gz / setup.exe / AppImage 三类载荷 URL；base64 签名字段不含这些模式，g 全局替换安全。
           sed -i -E \
-            -e 's#(sbox)_(aarch64|x64)\.app\.tar\.gz#\1_macos_\2.app.tar.gz#g' \
-            -e 's#(sbox_[0-9][0-9.]*)_(x64|arm64)-setup\.exe#\1_windows_\2-setup.exe#g' \
-            -e 's#(sbox_[0-9][0-9.]*)_(amd64)\.AppImage#\1_linux_\2.AppImage#g' \
+            -e "s#sbox_aarch64\.app\.tar\.gz#sbox_${ASSET_VERSION}_macos_arm64.app.tar.gz#g" \
+            -e "s#sbox_x64\.app\.tar\.gz#sbox_${ASSET_VERSION}_macos_x64.app.tar.gz#g" \
+            -e "s#sbox_[0-9][0-9.]*_x64-setup\.exe#sbox_${ASSET_VERSION}_windows_x64.exe#g" \
+            -e "s#sbox_[0-9][0-9.]*_arm64-setup\.exe#sbox_${ASSET_VERSION}_windows_arm64.exe#g" \
+            -e "s#sbox_[0-9][0-9.]*_amd64\.AppImage#sbox_${ASSET_VERSION}_linux_x64.AppImage#g" \
+            -e "s#sbox_[0-9][0-9.]*_arm64\.AppImage#sbox_${ASSET_VERSION}_linux_arm64.AppImage#g" \
             latest.json
           gh release view updater -R "$REPO" >/dev/null 2>&1 || \
             gh release create updater -R "$REPO" \
