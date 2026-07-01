@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1421",
-    "beforeDevCommand": "pnpm vite dev --port 1421",
-    "beforeBuildCommand": "pnpm vite build"
+    "beforeDevCommand": "pnpm --filter @sbox/app exec vite dev --port 1421",
+    "beforeBuildCommand": "pnpm --filter @sbox/app exec vite build"
   },
   "app": {
     "windows": [
