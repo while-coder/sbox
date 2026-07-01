@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { settings, saveSettings } from '../settings'
-import { bossKeyStatus, screenshotKeyStatus } from '../system'
+import { autostartStatus, bossKeyStatus, screenshotKeyStatus, setAutostart } from '../system'
 
 type KeyTarget = 'bossKey' | 'screenshotKey'
 const recordingTarget = ref<KeyTarget | null>(null)
@@ -66,6 +66,12 @@ function applyPreset(target: KeyTarget, combo: string) {
 function onToggle() {
   saveSettings()
 }
+
+async function onAutostartToggle(event: Event) {
+  const enabled = (event.target as HTMLInputElement).checked
+  await setAutostart(enabled, !enabled)
+  saveSettings()
+}
 </script>
 
 <template>
@@ -73,6 +79,25 @@ function onToggle() {
     <h2 class="page-title">设置</h2>
 
     <section class="card">
+      <div class="row">
+        <div class="row-text">
+          <div class="row-label">开机启动</div>
+          <div class="row-desc">登录系统后自动启动 sbox。</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" v-model="settings.autostart" @change="onAutostartToggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div
+        v-if="autostartStatus.message"
+        class="status"
+        :class="autostartStatus.state"
+      >
+        <span class="status-dot"></span>{{ autostartStatus.message }}
+      </div>
+
       <div class="row">
         <div class="row-text">
           <div class="row-label">关闭按钮最小化到托盘</div>

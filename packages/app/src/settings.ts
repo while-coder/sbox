@@ -5,6 +5,8 @@
 import { reactive } from 'vue'
 
 export interface Settings {
+  /** 是否随系统开机自动启动 */
+  autostart: boolean
   /** 点击关闭按钮（X）时最小化到托盘而非退出 */
   closeToTray: boolean
   /** 是否启用老板键（全局快捷键） */
@@ -22,6 +24,7 @@ export interface Settings {
 const STORAGE_KEY = 'sbox.settings'
 
 const DEFAULTS: Settings = {
+  autostart: false,
   closeToTray: true,
   bossKeyEnabled: true,
   bossKey: 'CommandOrControl+Shift+H',

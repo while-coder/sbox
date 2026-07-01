@@ -1,3 +1,4 @@
+pub mod autostart;
 pub mod gdrive_login;
 pub mod keystore_gen;
 pub mod save_file;

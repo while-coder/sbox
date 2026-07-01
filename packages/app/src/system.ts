@@ -5,6 +5,7 @@
  * 避免某一个单独 unregisterAll 把另一个清掉。
  */
 import { ref, watch } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { register, unregisterAll } from '@tauri-apps/plugin-global-shortcut'
 import { settings } from './settings'
@@ -18,6 +19,32 @@ type Status = { state: 'ok' | 'error' | 'idle'; message: string }
 export const bossKeyStatus = ref<Status>({ state: 'idle', message: '' })
 /** 截图快捷键当前注册状态。 */
 export const screenshotKeyStatus = ref<Status>({ state: 'idle', message: '' })
+/** 开机启动当前设置状态。 */
+export const autostartStatus = ref<Status>({ state: 'idle', message: '' })
+
+export async function refreshAutostart(): Promise<void> {
+  try {
+    settings.autostart = await invoke<boolean>('autostart_is_enabled')
+    autostartStatus.value = { state: 'ok', message: settings.autostart ? '已启用' : '未启用' }
+  } catch (e) {
+    autostartStatus.value = { state: 'error', message: '读取失败' }
+    console.error('读取开机启动状态失败：', e)
+  }
+}
+
+export async function setAutostart(enabled: boolean, previous = settings.autostart): Promise<boolean> {
+  settings.autostart = enabled
+  try {
+    await invoke('autostart_set_enabled', { enabled })
+    autostartStatus.value = { state: 'ok', message: enabled ? '已启用' : '未启用' }
+    return true
+  } catch (e) {
+    settings.autostart = previous
+    autostartStatus.value = { state: 'error', message: '设置失败' }
+    console.error('设置开机启动失败：', e)
+    return false
+  }
+}
 
 /** 切换主窗口显隐：可见则隐藏到托盘，否则显示并聚焦。 */
 async function toggleWindow(): Promise<void> {

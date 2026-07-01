@@ -1,27 +1,33 @@
 # sbox
 
-sbot 配套桌面工具箱（Tauri + Vue 3）。内置小工具：
+sbox 是一个桌面工具箱，提供常用的格式处理、生成校验、图片媒体和账号辅助功能。
 
-- **xiaoai-login** — 小爱登录，获取设备 cookie
-- **keystore-gen** — keystore 生成
-- **codec** — 编解码（Base64 / URL / Hex / 哈希等）
-- **json-convert** — JSON / YAML / TOML 互转与校验
-- **jwt** — JWT 解码（header / payload / 时间声明）
-- **timestamp** — 时间戳 / 时区转换
-- **random-gen** — 密码 / UUID / 随机字符串生成
-- **checksum** — 文件校验（计算并比对哈希）
+## 功能
 
-> 新增工具：在 [src/tools/registry.ts](src/tools/registry.ts) 追加一条即可，路由与首页（含搜索/分类）会自动接入。
+### 编解码 / 数据
 
-## 开发
+- 编解码工具：支持 Base64、URL、Hex、HTML、Unicode、JSON 等常用编码转换，并可计算文本或文件哈希。
+- JSON 格式化 / 查看器：支持美化、压缩、排序、树状查看，以及复制属性值或路径。
+- JSON / YAML / TOML 互转：支持三种配置格式互相转换、格式化和校验。
 
-```bash
-pnpm install
-pnpm dev            # 启动 tauri dev
-```
+### 开发辅助
 
-## 构建
+- JWT 解码：解析 JWT 的 header 和 payload，并把时间声明转换为可读时间。
+- 时间戳 / 时区转换：支持 Unix 时间戳、日期、相对时间和时区换算。
 
-```bash
-pnpm windows:build  # 或 macos:build / linux:build
-```
+### 生成 / 校验
+
+- 随机生成器：生成密码、UUID 和随机字符串。
+- 文件校验：计算文件或文本哈希，并与期望值比对。
+- Keystore 生成：生成 Android APK 签名所需的 keystore，并给出常用发布配置所需的信息。
+
+### 图像 / 媒体
+
+- 二维码生成 / 识别：生成二维码，或从图片、粘贴内容、拖拽文件、剪贴板中识别二维码。
+- 图片格式转换：支持 png、jpeg、webp、avif、gif、bmp、ico、tiff 等格式互转，也支持批量转换和单图旋转、裁剪、改尺寸。
+- 截图：支持全屏框选截图、保存、复制到剪贴板、识别二维码，并可使用全局快捷键。
+
+### 账号 / 设备
+
+- 小爱登录：登录小米账号，导出小爱相关接入信息。
+- Google Drive 登录：完成浏览器授权，导出 Google Drive 接入所需信息。

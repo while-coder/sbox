@@ -5,7 +5,7 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import UpdaterDialog from './UpdaterDialog.vue'
 import { loadSettings } from './settings'
-import { setupCloseToTray, applyBossKey, watchBossKey } from './system'
+import { setupCloseToTray, applyBossKey, watchBossKey, refreshAutostart } from './system'
 import { ensureOverlay } from './tools/screenshot/screenshot'
 
 const route = useRoute()
@@ -18,6 +18,7 @@ const isOverlay = computed(() => route.path === '/screenshot-overlay')
 onMounted(async () => {
   if (getCurrentWindow().label !== 'main') return
   loadSettings()
+  void refreshAutostart()
   await setupCloseToTray()
   await applyBossKey()
   // 改键 / 开关老板键时自动重新注册

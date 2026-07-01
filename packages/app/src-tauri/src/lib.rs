@@ -97,6 +97,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            tools::autostart::autostart_is_enabled,
+            tools::autostart::autostart_set_enabled,
             tools::xiaoai_login::xiaoai_open_login,
             tools::xiaoai_login::xiaoai_logout,
             tools::xiaoai_login::xiaoai_list_devices,
