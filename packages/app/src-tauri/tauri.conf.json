@@ -10,6 +10,7 @@
     "beforeBuildCommand": "pnpm --filter @sbox/app exec vite build"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
