@@ -68,27 +68,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Extract release notes
-        id: notes
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="$(node -p "require('./package.json').version")"
-          fi
-          BODY=$(awk -v v="$VERSION" '
-            $1 == "##" && $2 == v { capture=1; next }
-            capture && $1 == "##" { exit }
-            capture { print }
-          ' CHANGELOG.md)
-          [ -z "$BODY" ] && BODY="Release $VERSION"
-          {
-            echo "body<<RELEASE_NOTES_EOF"
-            echo "$BODY"
-            echo "RELEASE_NOTES_EOF"
-          } >> "$GITHUB_OUTPUT"
-
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -97,7 +76,6 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 'sbox v__VERSION__'
-          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: false
@@ -115,7 +93,7 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Resolve release tag
+      - name: Resolve release info
         id: release
         shell: bash
         run: |
@@ -126,27 +104,31 @@ jobs:
             VERSION="$(node -p "require('./package.json').version")"
             TAG="v${VERSION}"
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Force release body from CHANGELOG
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        shell: bash
-        run: |
-          VERSION="$RELEASE_VERSION"
           BODY=$(awk -v v="$VERSION" '
             $1 == "##" && $2 == v { capture=1; next }
             capture && $1 == "##" { exit }
             capture { print }
           ' CHANGELOG.md)
           [ -z "$BODY" ] && BODY="Release $VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          {
+            echo "notes<<RELEASE_NOTES_EOF"
+            echo "$BODY"
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Force release body from CHANGELOG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_NOTES: ${{ steps.release.outputs.notes }}
+        shell: bash
+        run: |
           # tauri-action only sets the body when first creating the release; if an earlier
           # matrix run already created it, its body is stuck on whatever was there. Force it.
-          gh release edit "$TAG" -R "$REPO" --notes "$BODY"
+          gh release edit "$TAG" -R "$REPO" --notes "$RELEASE_NOTES"
 
       # 给桌面产物文件名加系统和架构标识（tauri-action 上传时不含）。
       # 此 job needs: release-desktop，所有桌面 matrix 已完成，不会再有旧名文件上传。
@@ -182,6 +164,7 @@ jobs:
           REPO: ${{ github.repository }}
           TAG: ${{ steps.release.outputs.tag }}
           ASSET_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_NOTES: ${{ steps.release.outputs.notes }}
         run: |
           set -euo pipefail
           gh api "/repos/$REPO/releases/tags/$TAG" > release.json
@@ -195,23 +178,6 @@ jobs:
           const assets = new Map(release.assets.map((asset) => [asset.name, asset]));
           const platforms = {};
           const missing = [];
-
-          function changelogNotes() {
-            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8').split(/\r?\n/);
-            const lines = [];
-            let capture = false;
-            for (const line of changelog) {
-              const parts = line.trim().split(/\s+/);
-              if (parts[0] === '##' && parts[1] === version) {
-                capture = true;
-                continue;
-              }
-              if (capture && parts[0] === '##') break;
-              if (capture) lines.push(line);
-            }
-            const body = lines.join('\n').trim();
-            return body || `Release ${version}`;
-          }
 
           function signatureFor(assetName) {
             const sigName = `${assetName}.sig`;
@@ -269,7 +235,7 @@ jobs:
             'latest.json',
             `${JSON.stringify({
               version,
-              notes: changelogNotes(),
+              notes: process.env.RELEASE_NOTES || `Release ${version}`,
               pub_date: new Date().toISOString(),
               platforms,
             }, null, 2)}\n`,
