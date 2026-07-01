@@ -32,9 +32,6 @@ tauri-plugin-log = "2"
 which = "7"
 xcap = "0.9.6"
 tauri-plugin-clipboard-manager = "2.3.2"
-# 截图 PNG 编码用；版本与 xcap 内部一致(0.25.x)，Cargo 自动合并不重复引入。
-# 图片格式转换已迁至前端(@imagemagick/magick-wasm)，此处仅保留截图所需的 png。
-image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

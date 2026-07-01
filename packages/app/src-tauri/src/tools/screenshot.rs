@@ -1,7 +1,4 @@
-use base64::Engine;
 use std::sync::Mutex;
-use xcap::image::codecs::png::{CompressionType, FilterType, PngEncoder};
-use xcap::image::{ExtendedColorType, ImageEncoder, RgbaImage};
 use xcap::Monitor;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,11 +26,14 @@ impl MonitorBounds {
 #[derive(Default)]
 pub struct CaptureState(pub Mutex<Option<Capture>>);
 
+pub struct Capture {
+    pub meta: CaptureMeta,
+    pub rgba: Option<Vec<u8>>,
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Capture {
-    /// PNG 的 base64（物理像素）
-    pub base64: String,
+pub struct CaptureMeta {
     pub width: u32,
     pub height: u32,
     /// 显示器在虚拟桌面中的逻辑坐标
@@ -41,16 +41,6 @@ pub struct Capture {
     pub y: i32,
     /// DPI 缩放因子（物理 / 逻辑）
     pub scale: f32,
-}
-
-/// 用快速压缩 + 无过滤编码 PNG —— 全屏图默认压缩很慢，这里以体积换速度。
-fn encode_png(img: RgbaImage) -> Result<String, String> {
-    let (w, h) = (img.width(), img.height());
-    let mut buf = Vec::new();
-    PngEncoder::new_with_quality(&mut buf, CompressionType::Fast, FilterType::NoFilter)
-        .write_image(img.as_raw(), w, h, ExtendedColorType::Rgba8)
-        .map_err(|e| e.to_string())?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(&buf))
 }
 
 fn monitor_bounds(monitor: &Monitor) -> Result<MonitorBounds, String> {
@@ -110,23 +100,44 @@ pub fn screenshot_capture(
 ) -> Result<(), String> {
     let monitor = pick_monitor(&app)?;
     let img = monitor.capture_image().map_err(|e| e.to_string())?;
-    let cap = Capture {
+    let meta = CaptureMeta {
         width: img.width(),
         height: img.height(),
-        base64: encode_png(img)?,
         x: monitor.x().unwrap_or(0),
         y: monitor.y().unwrap_or(0),
         scale: monitor.scale_factor().unwrap_or(1.0),
     };
-    // 只存状态，由覆盖层窗口按需取一次，避免把大 base64 多传一程
+    let cap = Capture {
+        meta,
+        rgba: Some(img.into_raw()),
+    };
     *state.0.lock().map_err(|e| e.to_string())? = Some(cap);
     Ok(())
 }
 
-/// 覆盖层窗口读取最近一次捕获。
+/// 覆盖层窗口读取最近一次捕获的元数据。
 #[tauri::command]
-pub fn screenshot_latest(state: tauri::State<CaptureState>) -> Option<Capture> {
-    state.0.lock().ok().and_then(|g| g.clone())
+pub fn screenshot_latest(state: tauri::State<CaptureState>) -> Option<CaptureMeta> {
+    state
+        .0
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().map(|c| c.meta.clone()))
+}
+
+/// 覆盖层窗口读取最近一次捕获的 RGBA 原始像素。
+#[tauri::command]
+pub fn screenshot_latest_pixels(
+    state: tauri::State<CaptureState>,
+) -> Result<tauri::ipc::Response, String> {
+    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+    let pixels = guard
+        .as_mut()
+        .ok_or_else(|| "暂无截图".to_string())?
+        .rgba
+        .take()
+        .ok_or_else(|| "截图像素已读取".to_string())?;
+    Ok(tauri::ipc::Response::new(pixels))
 }
 
 #[cfg(test)]

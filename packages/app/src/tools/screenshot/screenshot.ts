@@ -9,13 +9,14 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { settings } from '../../settings'
 
 export interface Capture {
-  base64: string
   width: number
   height: number
   x: number
   y: number
   scale: number
 }
+
+export type CapturePixels = ArrayBuffer | Uint8Array | number[]
 
 const OVERLAY_LABEL = 'screenshot-overlay'
 /** 截图就绪事件，覆盖层据此刷新画面并显示自身。 */
@@ -24,6 +25,11 @@ export const CAPTURE_READY = 'sbox://capture-ready'
 /** 读取最近一次捕获（覆盖层窗口调用）。 */
 export function getLatestCapture(): Promise<Capture | null> {
   return invoke<Capture | null>('screenshot_latest')
+}
+
+/** 读取最近一次捕获的 RGBA 原始像素（覆盖层窗口调用）。 */
+export function getLatestCapturePixels(): Promise<CapturePixels> {
+  return invoke<CapturePixels>('screenshot_latest_pixels')
 }
 
 /** 预创建隐藏的覆盖层窗口（应用启动时调用一次）。幂等。 */

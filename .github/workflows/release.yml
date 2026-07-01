@@ -26,6 +26,9 @@ jobs:
           - platform: windows-latest
             args: ''
             rust-target: ''
+          - platform: windows-latest
+            args: '--target aarch64-pc-windows-msvc'
+            rust-target: aarch64-pc-windows-msvc
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -122,6 +125,28 @@ jobs:
           # run already created the draft, its body is stuck on whatever was there. Force it.
           gh release edit "$TAG" -R "$REPO" --notes "$BODY"
 
+      # 给桌面产物文件名加系统标识（tauri-action 上传时不含）。
+      # 此 job needs: release-desktop，所有桌面 matrix 已完成，不会再有旧名文件上传。
+      # sed 不加 $ 行尾锚，.sig 后缀会自动保留；latest.json 不匹配规则，留待后续删除。
+      - name: Rename desktop assets with OS tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh api "/repos/$REPO/releases/tags/$TAG" --jq '.assets[] | "\(.id)\t\(.name)"' |
+          while IFS=$'\t' read -r id name; do
+            new=$(printf '%s' "$name" | sed -E \
+              -e 's/^(sbox_[0-9][0-9.]*)_(aarch64|x64)\.dmg/\1_macos_\2.dmg/' \
+              -e 's/^(sbox_[0-9][0-9.]*)_(amd64)\.(AppImage|deb)/\1_linux_\2.\3/' \
+              -e 's/^(sbox_[0-9][0-9.]*)_(x64|arm64)-setup\.exe/\1_windows_\2-setup.exe/' \
+              -e 's/^(sbox)_(aarch64|x64)\.app\.tar\.gz/\1_macos_\2.app.tar.gz/')
+            if [ "$new" != "$name" ]; then
+              echo "rename: $name -> $new"
+              gh api -X PATCH "/repos/$REPO/releases/assets/$id" -f name="$new" >/dev/null
+            fi
+          done
+
       - name: Sync updater manifest to updater channel
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -132,9 +157,18 @@ jobs:
             echo "::error::latest.json not found on release $TAG — no platform produced an updater manifest"
             exit 1
           fi
+          # 上一步已重命名更新载荷文件，latest.json 里的 URL 需同步改写，否则更新器会 404。
+          # latest.json 只含 tar.gz / setup.exe / AppImage 三类载荷 URL；base64 签名字段不含这些模式，g 全局替换安全。
+          sed -i -E \
+            -e 's#(sbox)_(aarch64|x64)\.app\.tar\.gz#\1_macos_\2.app.tar.gz#g' \
+            -e 's#(sbox_[0-9][0-9.]*)_(x64|arm64)-setup\.exe#\1_windows_\2-setup.exe#g' \
+            -e 's#(sbox_[0-9][0-9.]*)_(amd64)\.AppImage#\1_linux_\2.AppImage#g' \
+            latest.json
           gh release view updater -R "$REPO" >/dev/null 2>&1 || \
             gh release create updater -R "$REPO" \
               --title "Updater Manifests" \
               --notes "Auto-maintained by CI. Hosts the updater JSON for sbox." \
               --latest=false
           gh release upload updater latest.json -R "$REPO" --clobber
+          # latest.json 只是中间产物，自动更新读的是固定 updater release 那份，从版本 release 删掉。
+          gh release delete-asset "$TAG" latest.json -R "$REPO" --yes

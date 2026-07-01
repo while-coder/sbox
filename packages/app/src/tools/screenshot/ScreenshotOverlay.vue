@@ -6,12 +6,18 @@ import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { writeImage } from '@tauri-apps/plugin-clipboard-manager'
 import { Image } from '@tauri-apps/api/image'
 import jsQR from 'jsqr'
-import { getLatestCapture, finishScreenshot, CAPTURE_READY, type Capture } from './screenshot'
+import {
+  getLatestCapture,
+  getLatestCapturePixels,
+  finishScreenshot,
+  CAPTURE_READY,
+  type Capture,
+  type CapturePixels,
+} from './screenshot'
 import { saveBase64File } from '../../save'
 
 const capture = ref<Capture | null>(null)
-const dataUrl = computed(() => capture.value ? `data:image/png;base64,${capture.value.base64}` : '')
-const imgEl = ref<HTMLImageElement | null>(null)
+const shotCanvas = ref<HTMLCanvasElement | null>(null)
 
 // 选区（视口 CSS 像素）
 const sel = reactive({ x: 0, y: 0, w: 0, h: 0 })
@@ -35,20 +41,33 @@ function resetSel() {
   toast.value = ''
 }
 
+function toClampedBytes(payload: CapturePixels): Uint8ClampedArray {
+  if (payload instanceof ArrayBuffer) return new Uint8ClampedArray(payload)
+  if (payload instanceof Uint8Array) return new Uint8ClampedArray(payload)
+  return Uint8ClampedArray.from(payload)
+}
+
+function drawCapture(cap: Capture, payload: CapturePixels) {
+  const canvas = shotCanvas.value
+  if (!canvas) return
+  const pixels = toClampedBytes(payload)
+  const expected = cap.width * cap.height * 4
+  if (pixels.byteLength !== expected) {
+    throw new Error(`截图像素尺寸不匹配：${pixels.byteLength} != ${expected}`)
+  }
+  canvas.width = cap.width
+  canvas.height = cap.height
+  const ctx = canvas.getContext('2d', { alpha: false })
+  if (!ctx) throw new Error('无法创建截图画布')
+  ctx.putImageData(new ImageData(pixels, cap.width, cap.height), 0, 0)
+}
+
 onMounted(async () => {
   window.addEventListener('keydown', onKey)
   // 截图就绪：刷新画面、重置选区、显示并聚焦自身
   unlisten = await listen<{ restoreMain: boolean }>(CAPTURE_READY, async (e) => {
     restoreMain = e.payload?.restoreMain ?? false
     const cap = await getLatestCapture()
-    // 先把新图解码完成再显示，避免 show 后仍在解码而露出空白/上一帧
-    if (cap) {
-      try {
-        const pre = document.createElement('img')
-        pre.src = `data:image/png;base64,${cap.base64}`
-        await pre.decode()
-      } catch { /* 解码失败也继续 */ }
-    }
     capture.value = cap
     resetSel()
     await nextTick()
@@ -62,6 +81,14 @@ onMounted(async () => {
       }
     } catch (err) {
       console.error('覆盖层定位失败：', err)
+    }
+    if (cap) {
+      try {
+        drawCapture(cap, await getLatestCapturePixels())
+      } catch (err) {
+        toast.value = `截图加载失败：${String((err as Error)?.message || err)}`
+        console.error('截图画面加载失败：', err)
+      }
     }
     await w.show()
     await w.setFocus()
@@ -142,9 +169,9 @@ function onMouseUp() {
 
 // ── 裁剪 ──────────────────────────────────────────────────
 function cropCanvas(): HTMLCanvasElement | null {
-  const img = imgEl.value
+  const source = shotCanvas.value
   const cap = capture.value
-  if (!img || !cap || !hasSel.value) return null
+  if (!source || !cap || !hasSel.value) return null
   const rx = cap.width / window.innerWidth
   const ry = cap.height / window.innerHeight
   const sx = Math.round(sel.x * rx), sy = Math.round(sel.y * ry)
@@ -153,7 +180,7 @@ function cropCanvas(): HTMLCanvasElement | null {
   canvas.width = sw; canvas.height = sh
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) return null
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
+  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh)
   return canvas
 }
 
@@ -245,7 +272,7 @@ const handleCursor: Record<Handle, string> = {
 
 <template>
   <div class="overlay" @mousedown="onBgMouseDown" @mousemove="onMouseMove" @mouseup="onMouseUp">
-    <img v-if="dataUrl" ref="imgEl" :src="dataUrl" class="shot" alt="" draggable="false" />
+    <canvas v-if="capture" ref="shotCanvas" class="shot" />
 
     <!-- 未选区时整屏压暗 -->
     <div v-if="!hasSel" class="dim-full" />

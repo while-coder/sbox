@@ -6,16 +6,16 @@
       "request": "launch",
       "name": "Tauri Debug (dev) · Windows",
       "preLaunchTask": "tauri:before:dev",
-      "program": "${workspaceFolder}/src-tauri/target/debug/sbox.exe",
-      "cwd": "${workspaceFolder}/src-tauri"
+      "program": "${workspaceFolder}/packages/app/src-tauri/target/debug/sbox.exe",
+      "cwd": "${workspaceFolder}/packages/app/src-tauri"
     },
     {
       "type": "lldb",
       "request": "launch",
       "name": "Tauri Debug (dev) · macOS",
       "preLaunchTask": "tauri:before:dev",
-      "program": "${workspaceFolder}/src-tauri/target/debug/sbox",
-      "cwd": "${workspaceFolder}/src-tauri"
+      "program": "${workspaceFolder}/packages/app/src-tauri/target/debug/sbox",
+      "cwd": "${workspaceFolder}/packages/app/src-tauri"
     }
   ]
 }

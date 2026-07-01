@@ -106,6 +106,7 @@ pub fn run() {
             tools::save_file::save_base64_file,
             tools::screenshot::screenshot_capture,
             tools::screenshot::screenshot_latest,
+            tools::screenshot::screenshot_latest_pixels,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sbox");
