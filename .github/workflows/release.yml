@@ -9,250 +9,59 @@ permissions:
   contents: write
 
 jobs:
-  release-desktop:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: '--target aarch64-apple-darwin'
-            rust-target: aarch64-apple-darwin
-          - platform: macos-latest
-            args: '--target x86_64-apple-darwin'
-            rust-target: x86_64-apple-darwin
-          - platform: ubuntu-24.04
-            args: ''
-            rust-target: ''
-          - platform: windows-latest
-            args: ''
-            rust-target: ''
-          - platform: windows-latest
-            args: '--target aarch64-pc-windows-msvc'
-            rust-target: aarch64-pc-windows-msvc
-
-    runs-on: ${{ matrix.platform }}
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      notes: ${{ steps.release.outputs.notes }}
     steps:
       - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v6
+      - id: release
+        uses: while-coder/workflows/.github/actions/resolve-release-info@main
         with:
-          version: 10.33.0
+          tag-prefix: v
+          package-json: package.json
+          changelog: CHANGELOG.md
 
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-target }}
-
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            packages/app/src-tauri/target
-          key: ${{ matrix.platform }}-${{ matrix.rust-target || 'default' }}-cargo-${{ hashFiles('packages/app/src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ matrix.platform }}-${{ matrix.rust-target || 'default' }}-cargo-
-            ${{ matrix.platform }}-cargo-
-
-      - name: Install Linux deps
-        if: startsWith(matrix.platform, 'ubuntu-')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libpipewire-0.3-dev libgbm-dev patchelf
-
-      - run: pnpm install --frozen-lockfile
-
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: v__VERSION__
-          releaseName: 'sbox v__VERSION__'
-          releaseDraft: false
-          prerelease: false
-          includeUpdaterJson: false
-          args: ${{ matrix.args }}
-
-  publish-manifest:
-    needs: release-desktop
-    if: ${{ needs.release-desktop.result == 'success' }}
+  prepare-release:
+    needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - name: Recreate GitHub Release
+        uses: while-coder/workflows/.github/actions/recreate-github-release@main
         with:
-          node-version: 24
-          package-manager-cache: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ needs.check.outputs.tag }}
+          title: sbox v${{ needs.check.outputs.version }}
+          notes: ${{ needs.check.outputs.notes }}
 
-      - name: Resolve release info
-        id: release
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF_NAME}"
-            VERSION="${TAG#v}"
-          else
-            VERSION="$(node -p "require('./package.json').version")"
-            TAG="v${VERSION}"
-          fi
-          BODY=$(awk -v v="$VERSION" '
-            $1 == "##" && $2 == v { capture=1; next }
-            capture && $1 == "##" { exit }
-            capture { print }
-          ' CHANGELOG.md)
-          [ -z "$BODY" ] && BODY="Release $VERSION"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          {
-            echo "notes<<RELEASE_NOTES_EOF"
-            echo "$BODY"
-            echo "RELEASE_NOTES_EOF"
-          } >> "$GITHUB_OUTPUT"
+  release-desktop:
+    needs: [check, prepare-release]
+    uses: while-coder/workflows/.github/workflows/tauri-desktop-release.yml@main
+    with:
+      project-path: packages/app
+      cargo-lock-path: packages/app/src-tauri/Cargo.lock
+      cargo-target-path: packages/app/src-tauri/target
+      cache-key-prefix: cargo
+      tag-name: ${{ needs.check.outputs.tag }}
+      release-name: sbox v${{ needs.check.outputs.version }}
+      release-body: ${{ needs.check.outputs.notes }}
+      matrix-json: >-
+        [{"platform":"macos-latest","args":"--target aarch64-apple-darwin","rust-target":"aarch64-apple-darwin"},{"platform":"macos-latest","args":"--target x86_64-apple-darwin","rust-target":"x86_64-apple-darwin"},{"platform":"ubuntu-24.04","args":"","rust-target":""},{"platform":"windows-latest","args":"","rust-target":""},{"platform":"windows-latest","args":"--target aarch64-pc-windows-msvc","rust-target":"aarch64-pc-windows-msvc"}]
+      linux-packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libpipewire-0.3-dev libgbm-dev patchelf
+    secrets: inherit
 
-      - name: Force release body from CHANGELOG
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_NOTES: ${{ steps.release.outputs.notes }}
-        shell: bash
-        run: |
-          # tauri-action only sets the body when first creating the release; if an earlier
-          # matrix run already created it, its body is stuck on whatever was there. Force it.
-          gh release edit "$TAG" -R "$REPO" --notes "$RELEASE_NOTES"
-
-      # 给桌面产物文件名加系统和架构标识（tauri-action 上传时不含）。
-      # 此 job needs: release-desktop，所有桌面 matrix 已完成，不会再有旧名文件上传。
-      # sed 不加 $ 行尾锚，.tar.gz / .zip / .sig 后缀会自动保留。
-      - name: Rename desktop assets with OS tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          TAG: ${{ steps.release.outputs.tag }}
-          ASSET_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          gh api "/repos/$REPO/releases/tags/$TAG" --jq '.assets[] | "\(.id)\t\(.name)"' |
-          while IFS=$'\t' read -r id name; do
-            new=$(printf '%s' "$name" | sed -E \
-              -e "s#^sbox_[0-9][0-9.]*_aarch64\.dmg#sbox_${ASSET_VERSION}_macos_arm64.dmg#" \
-              -e "s#^sbox_[0-9][0-9.]*_x64\.dmg#sbox_${ASSET_VERSION}_macos_x64.dmg#" \
-              -e "s#^sbox_aarch64\.app\.tar\.gz#sbox_${ASSET_VERSION}_macos_arm64.app.tar.gz#" \
-              -e "s#^sbox_x64\.app\.tar\.gz#sbox_${ASSET_VERSION}_macos_x64.app.tar.gz#" \
-              -e "s#^sbox_[0-9][0-9.]*_amd64\.(AppImage|deb)#sbox_${ASSET_VERSION}_linux_x64.\1#" \
-              -e "s#^sbox_[0-9][0-9.]*_x64-setup\.nsis\.zip#sbox_${ASSET_VERSION}_windows_x64.nsis.zip#" \
-              -e "s#^sbox_[0-9][0-9.]*_arm64-setup\.nsis\.zip#sbox_${ASSET_VERSION}_windows_arm64.nsis.zip#" \
-              -e "s#^sbox_[0-9][0-9.]*_x64-setup\.exe#sbox_${ASSET_VERSION}_windows_x64.exe#" \
-              -e "s#^sbox_[0-9][0-9.]*_arm64-setup\.exe#sbox_${ASSET_VERSION}_windows_arm64.exe#")
-            if [ "$new" != "$name" ]; then
-              echo "rename: $name -> $new"
-              gh api -X PATCH "/repos/$REPO/releases/assets/$id" -f name="$new" >/dev/null
-            fi
-          done
-
-      - name: Generate updater manifest
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          TAG: ${{ steps.release.outputs.tag }}
-          ASSET_VERSION: ${{ steps.release.outputs.version }}
-          RELEASE_NOTES: ${{ steps.release.outputs.notes }}
-        run: |
-          set -euo pipefail
-          gh api "/repos/$REPO/releases/tags/$TAG" > release.json
-          node <<'NODE'
-          const fs = require('node:fs');
-          const { execFileSync } = require('node:child_process');
-
-          const repo = process.env.REPO;
-          const version = process.env.ASSET_VERSION;
-          const release = JSON.parse(fs.readFileSync('release.json', 'utf8'));
-          const assets = new Map(release.assets.map((asset) => [asset.name, asset]));
-          const platforms = {};
-          const missing = [];
-
-          function signatureFor(assetName) {
-            const sigName = `${assetName}.sig`;
-            const sigAsset = assets.get(sigName);
-            if (!sigAsset) {
-              throw new Error(`missing signature asset: ${sigName}`);
-            }
-            return execFileSync('gh', [
-              'api',
-              `/repos/${repo}/releases/assets/${sigAsset.id}`,
-              '-H',
-              'Accept: application/octet-stream',
-            ], { encoding: 'utf8' }).trim();
-          }
-
-          function add(keys, candidates) {
-            const asset = candidates.map((name) => assets.get(name)).find(Boolean);
-            if (!asset) {
-              missing.push(candidates.join(' or '));
-              return;
-            }
-            const entry = {
-              signature: signatureFor(asset.name),
-              url: asset.browser_download_url,
-            };
-            for (const key of keys) {
-              platforms[key] = entry;
-            }
-          }
-
-          add(['darwin-x86_64', 'darwin-x86_64-app'], [
-            `sbox_${version}_macos_x64.app.tar.gz`,
-          ]);
-          add(['darwin-aarch64', 'darwin-aarch64-app'], [
-            `sbox_${version}_macos_arm64.app.tar.gz`,
-          ]);
-          add(['windows-x86_64', 'windows-x86_64-nsis'], [
-            `sbox_${version}_windows_x64.nsis.zip`,
-            `sbox_${version}_windows_x64.exe`,
-          ]);
-          add(['windows-aarch64', 'windows-aarch64-nsis'], [
-            `sbox_${version}_windows_arm64.nsis.zip`,
-            `sbox_${version}_windows_arm64.exe`,
-          ]);
-          add(['linux-x86_64', 'linux-x86_64-appimage'], [
-            `sbox_${version}_linux_x64.AppImage.tar.gz`,
-            `sbox_${version}_linux_x64.AppImage`,
-          ]);
-
-          if (missing.length > 0) {
-            throw new Error(`missing updater payload asset(s): ${missing.join(', ')}`);
-          }
-
-          fs.writeFileSync(
-            'latest.json',
-            `${JSON.stringify({
-              version,
-              notes: process.env.RELEASE_NOTES || `Release ${version}`,
-              pub_date: new Date().toISOString(),
-              platforms,
-            }, null, 2)}\n`,
-          );
-          NODE
-          if gh release view updater -R "$REPO" >/dev/null 2>&1; then
-            gh release upload updater latest.json -R "$REPO" --clobber
-          else
-            gh release create updater -R "$REPO" \
-              latest.json \
-              --target "$GITHUB_SHA" \
-              --title "Updater Manifests" \
-              --notes "Auto-maintained by CI. Hosts the updater JSON for sbox." \
-              --latest=false
-          fi
-          # 自动更新读的是固定 updater release 那份；版本 release 若残留旧 latest.json，则删除。
-          old_latest_id=$(gh api "/repos/$REPO/releases/tags/$TAG" --jq '.assets[] | select(.name == "latest.json") | .id' || true)
-          if [ -n "$old_latest_id" ]; then
-            gh api -X DELETE "/repos/$REPO/releases/assets/$old_latest_id" >/dev/null
-          fi
+  publish-manifest:
+    needs: [check, release-desktop]
+    if: ${{ !cancelled() && needs.release-desktop.result == 'success' }}
+    uses: while-coder/workflows/.github/workflows/tauri-updater-manifest.yml@main
+    with:
+      product-prefix: sbox
+      tag-name: ${{ needs.check.outputs.tag }}
+      version: ${{ needs.check.outputs.version }}
+      release-notes: ${{ needs.check.outputs.notes }}
+      output-name: latest.json
+      updater-title: Updater Manifests
+    secrets: inherit

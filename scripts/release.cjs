@@ -25,6 +25,15 @@ function run(cmd, opts = {}) {
   return execSync(cmd, { stdio: 'inherit', ...opts });
 }
 
+function commandSucceeds(cmd) {
+  try {
+    execSync(cmd, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
@@ -45,11 +54,19 @@ function isWorkingTreeClean() {
 }
 
 function tagExists(tag) {
-  try {
-    execSync(`git rev-parse -q --verify "refs/tags/${tag}"`, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
+  return commandSucceeds(`git rev-parse -q --verify "refs/tags/${tag}"`);
+}
+
+function remoteTagExists(tag) {
+  return commandSucceeds(`git ls-remote --exit-code origin "refs/tags/${tag}"`);
+}
+
+function deleteExistingTag(tag) {
+  if (remoteTagExists(tag)) {
+    run(`git push origin --delete "${tag}"`);
+  }
+  if (tagExists(tag)) {
+    run(`git tag -d "${tag}"`);
   }
 }
 
@@ -96,11 +113,6 @@ function main() {
   console.log(`tag     : ${tag}`);
   console.log('');
 
-  if (tagExists(tag)) {
-    console.error(`error: tag "${tag}" already exists`);
-    process.exit(1);
-  }
-
   if (!changelogHasVersion(path.join(root, CHANGELOG), nextVersion)) {
     console.warn(`warning: ${CHANGELOG} has no "## ${nextVersion}" section — release notes will fall back to "Release ${nextVersion}"`);
   }
@@ -117,6 +129,8 @@ function main() {
     run(`git add "${pkgRel}"`);
     run(`git commit -m "chore: release v${nextVersion}"`);
   }
+
+  deleteExistingTag(tag);
 
   run(`git tag -a "${tag}" -m "sbox v${nextVersion}"`);
   run('git push');
