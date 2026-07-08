@@ -61,18 +61,21 @@ export function clearCapture(): Promise<void> {
 
 async function makeOverlayIdle(win: Window): Promise<void> {
   await win.setIgnoreCursorEvents(true)
+  // 空闲时隐藏窗口而非仅靠透明穿透：macOS 上透明合成有首帧/时序空窗，
+  // 常驻可见会露出一块白色矩形。截图时再由 CAPTURE_READY 回调 show。
+  await win.hide()
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** 预创建透明常驻的覆盖层窗口（应用启动时调用一次）。幂等。 */
+/** 预创建透明的覆盖层窗口（应用启动时调用一次），保持隐藏，截图时再显示。幂等。 */
 export async function ensureOverlay(): Promise<WebviewWindow> {
   const existing = await WebviewWindow.getByLabel(OVERLAY_LABEL)
   if (existing) {
+    // 保持隐藏；真正的 show 由 CAPTURE_READY 回调在定位并绘制画面后执行。
     await makeOverlayIdle(existing)
-    if (!(await existing.isVisible())) await existing.show()
     return existing
   }
   const overlay = new WebviewWindow(OVERLAY_LABEL, {
@@ -85,7 +88,8 @@ export async function ensureOverlay(): Promise<WebviewWindow> {
     resizable: false,
     shadow: false,
     focus: false,
-    visible: true,
+    // 预创建但不显示，避免启动/空闲时露出白块（详见 makeOverlayIdle）。
+    visible: false,
     title: 'sbox 截图',
   })
   await makeOverlayIdle(overlay)

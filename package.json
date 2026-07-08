@@ -11,6 +11,7 @@
     "dev": "pnpm --filter @sbox/app dev",
     "dev:app": "pnpm --filter @sbox/app dev",
     "build:app": "pnpm --filter @sbox/app windows:build",
+    "build:app:mac": "pnpm --filter @sbox/app macos:build",
     "tauri": "pnpm --filter @sbox/app tauri",
     "release": "node scripts/release.cjs",
     "docs:dev": "vitepress dev docs-site",
