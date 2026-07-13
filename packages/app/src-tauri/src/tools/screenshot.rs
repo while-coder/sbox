@@ -60,6 +60,17 @@ pub struct SelectionRect {
     pub height: u32,
 }
 
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RectMark {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub line_width: u32,
+    pub color: [u8; 4],
+}
+
 fn preview_size(width: u32, height: u32) -> (u32, u32) {
     let max_edge = width.max(height);
     if max_edge <= PREVIEW_MAX_EDGE {
@@ -136,6 +147,78 @@ fn crop_rgba(
         out.extend_from_slice(&rgba[start..start + row_bytes]);
     }
     Ok(out)
+}
+
+fn fill_rgba_rect(
+    rgba: &mut [u8],
+    image_width: u32,
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
+    color: [u8; 4],
+) {
+    for y in top..bottom {
+        for x in left..right {
+            let offset = (y as usize * image_width as usize + x as usize) * 4;
+            rgba[offset..offset + 4].copy_from_slice(&color);
+        }
+    }
+}
+
+fn draw_rect_marks(rgba: &mut [u8], width: u32, height: u32, marks: &[RectMark]) {
+    for mark in marks {
+        if mark.width == 0 || mark.height == 0 || width == 0 || height == 0 {
+            continue;
+        }
+        let left = mark.x.min(width);
+        let top = mark.y.min(height);
+        let right = mark.x.saturating_add(mark.width).min(width);
+        let bottom = mark.y.saturating_add(mark.height).min(height);
+        if left >= right || top >= bottom {
+            continue;
+        }
+        let line_width = mark.line_width.max(1).min(right - left).min(bottom - top);
+        let inner_right = right.saturating_sub(line_width);
+        let inner_bottom = bottom.saturating_sub(line_width);
+
+        fill_rgba_rect(
+            rgba,
+            width,
+            left,
+            top,
+            right,
+            (top + line_width).min(bottom),
+            mark.color,
+        );
+        fill_rgba_rect(
+            rgba,
+            width,
+            left,
+            inner_bottom.max(top),
+            right,
+            bottom,
+            mark.color,
+        );
+        fill_rgba_rect(
+            rgba,
+            width,
+            left,
+            top,
+            (left + line_width).min(right),
+            bottom,
+            mark.color,
+        );
+        fill_rgba_rect(
+            rgba,
+            width,
+            inner_right.max(left),
+            top,
+            right,
+            bottom,
+            mark.color,
+        );
+    }
 }
 
 fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
@@ -250,39 +333,44 @@ pub fn screenshot_latest_pixels(
     Ok(tauri::ipc::Response::new(pixels))
 }
 
-/// 按原图裁剪选区，返回 RGBA 原始像素。
+/// 按原图裁剪选区并合成矩形标记，返回 RGBA 原始像素。
 #[tauri::command]
 pub fn screenshot_crop_pixels(
     state: tauri::State<CaptureState>,
     selection: SelectionRect,
+    marks: Vec<RectMark>,
 ) -> Result<tauri::ipc::Response, String> {
     let guard = state.0.lock().map_err(|e| e.to_string())?;
     let capture = guard.as_ref().ok_or_else(|| "暂无截图".to_string())?;
-    let pixels = crop_rgba(
+    let selection = clamp_selection(selection, capture.meta.width, capture.meta.height)?;
+    let mut pixels = crop_rgba(
         &capture.rgba,
         capture.meta.width,
         capture.meta.height,
         selection,
     )?;
+    draw_rect_marks(&mut pixels, selection.width, selection.height, &marks);
     Ok(tauri::ipc::Response::new(pixels))
 }
 
-/// 按原图裁剪选区并保存为 PNG。
+/// 按原图裁剪选区、合成矩形标记并保存为 PNG。
 #[tauri::command]
 pub fn screenshot_save_selection(
     state: tauri::State<CaptureState>,
     path: String,
     selection: SelectionRect,
+    marks: Vec<RectMark>,
 ) -> Result<(), String> {
     let guard = state.0.lock().map_err(|e| e.to_string())?;
     let capture = guard.as_ref().ok_or_else(|| "暂无截图".to_string())?;
     let selection = clamp_selection(selection, capture.meta.width, capture.meta.height)?;
-    let pixels = crop_rgba(
+    let mut pixels = crop_rgba(
         &capture.rgba,
         capture.meta.width,
         capture.meta.height,
         selection,
     )?;
+    draw_rect_marks(&mut pixels, selection.width, selection.height, &marks);
     let png = encode_png(&pixels, selection.width, selection.height)?;
     fs::write(&path, png).map_err(|e| format!("写入失败: {e}"))?;
     Ok(())
@@ -297,7 +385,9 @@ pub fn screenshot_clear(state: tauri::State<CaptureState>) -> Result<(), String>
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_selection, preview_size, MonitorBounds, SelectionRect};
+    use super::{
+        clamp_selection, draw_rect_marks, preview_size, MonitorBounds, RectMark, SelectionRect,
+    };
 
     #[test]
     fn bounds_include_points_inside_the_target_monitor() {
@@ -352,5 +442,32 @@ mod tests {
         assert_eq!(rect.y, 90);
         assert_eq!(rect.width, 10);
         assert_eq!(rect.height, 10);
+    }
+
+    #[test]
+    fn rect_marks_draw_an_outline_without_filling_the_center() {
+        let mut pixels = vec![0; 5 * 5 * 4];
+        draw_rect_marks(
+            &mut pixels,
+            5,
+            5,
+            &[RectMark {
+                x: 1,
+                y: 1,
+                width: 3,
+                height: 3,
+                line_width: 1,
+                color: [255, 0, 0, 255],
+            }],
+        );
+
+        let pixel = |x: usize, y: usize| {
+            let offset = (y * 5 + x) * 4;
+            <[u8; 4]>::try_from(&pixels[offset..offset + 4]).unwrap()
+        };
+        assert_eq!(pixel(1, 1), [255, 0, 0, 255]);
+        assert_eq!(pixel(3, 3), [255, 0, 0, 255]);
+        assert_eq!(pixel(2, 2), [0, 0, 0, 0]);
+        assert_eq!(pixel(0, 0), [0, 0, 0, 0]);
     }
 }

@@ -5165,6 +5165,7 @@ dependencies = [
 [[package]]
 name = "tauri-updater-kit"
 version = "0.0.0"
+source = "git+https://github.com/while-coder/tauri-updater-kit?branch=main#46cc01c09c795e048ce0c460586984841b705ce7"
 dependencies = [
  "tauri",
  "tauri-plugin-updater",

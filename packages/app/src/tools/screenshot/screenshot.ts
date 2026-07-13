@@ -29,8 +29,18 @@ export interface SelectionRect {
   height: number
 }
 
+export interface RectMark {
+  x: number
+  y: number
+  width: number
+  height: number
+  lineWidth: number
+  color: number[]
+}
+
 const OVERLAY_LABEL = 'screenshot-overlay'
 const HIDE_CAPTURE_SETTLE_MS = 280
+let overlayCreation: Promise<WebviewWindow> | null = null
 /** 截图就绪事件，覆盖层据此刷新画面并接管交互。 */
 export const CAPTURE_READY = 'sbox://capture-ready'
 
@@ -44,14 +54,14 @@ export function getLatestCapturePixels(): Promise<CapturePixels> {
   return invoke<CapturePixels>('screenshot_latest_pixels')
 }
 
-/** 按原图裁剪选区，返回 RGBA 像素。 */
-export function cropSelectionPixels(selection: SelectionRect): Promise<CapturePixels> {
-  return invoke<CapturePixels>('screenshot_crop_pixels', { selection })
+/** 按原图裁剪选区并合成矩形标记，返回 RGBA 像素。 */
+export function cropSelectionPixels(selection: SelectionRect, marks: RectMark[] = []): Promise<CapturePixels> {
+  return invoke<CapturePixels>('screenshot_crop_pixels', { selection, marks })
 }
 
-/** 按原图裁剪选区并保存为 PNG。 */
-export function saveSelection(path: string, selection: SelectionRect): Promise<void> {
-  return invoke('screenshot_save_selection', { path, selection })
+/** 按原图裁剪选区、合成矩形标记并保存为 PNG。 */
+export function saveSelection(path: string, selection: SelectionRect, marks: RectMark[] = []): Promise<void> {
+  return invoke('screenshot_save_selection', { path, selection, marks })
 }
 
 /** 清理最近一次截图，释放 Rust 端原图缓存。 */
@@ -70,14 +80,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** 预创建透明的覆盖层窗口（应用启动时调用一次），保持隐藏，截图时再显示。幂等。 */
-export async function ensureOverlay(): Promise<WebviewWindow> {
-  const existing = await WebviewWindow.getByLabel(OVERLAY_LABEL)
-  if (existing) {
-    // 保持隐藏；真正的 show 由 CAPTURE_READY 回调在定位并绘制画面后执行。
-    await makeOverlayIdle(existing)
-    return existing
-  }
+async function createOverlay(): Promise<WebviewWindow> {
   const overlay = new WebviewWindow(OVERLAY_LABEL, {
     url: 'index.html#/screenshot-overlay',
     transparent: true,
@@ -92,8 +95,33 @@ export async function ensureOverlay(): Promise<WebviewWindow> {
     visible: false,
     title: 'sbox 截图',
   })
+  await new Promise<void>((resolve, reject) => {
+    void overlay.once('tauri://created', () => resolve())
+    void overlay.once<string>('tauri://error', (event) => {
+      reject(new Error(`创建截图覆盖层失败：${event.payload}`))
+    })
+  })
+  // WebviewWindow 构造只会发起异步创建；必须等原生窗口存在后再设置穿透和隐藏。
   await makeOverlayIdle(overlay)
   return overlay
+}
+
+/** 预创建透明的覆盖层窗口（应用启动时调用一次），保持隐藏，截图时再显示。幂等。 */
+export async function ensureOverlay(): Promise<WebviewWindow> {
+  if (overlayCreation) return overlayCreation
+  const existing = await WebviewWindow.getByLabel(OVERLAY_LABEL)
+  if (existing) {
+    // 保持隐藏；真正的 show 由 CAPTURE_READY 回调在定位并绘制画面后执行。
+    await makeOverlayIdle(existing)
+    return existing
+  }
+  // 启动初始化和快捷键可能同时进入这里，共用同一次原生窗口创建。
+  if (!overlayCreation) overlayCreation = createOverlay()
+  try {
+    return await overlayCreation
+  } finally {
+    overlayCreation = null
+  }
 }
 
 async function waitUntilHidden(win: Window): Promise<void> {
