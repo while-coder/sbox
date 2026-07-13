@@ -5,6 +5,8 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
+    "macos:setup-signing": "bash ../../scripts/mac-sign.sh --setup",
+    "macos:dev": "bash ../../scripts/mac-signed-dev.sh",
     "macos:build": "APPLE_SIGNING_IDENTITY=sbox-dev tauri build",
     "windows:build": "tauri build",
     "linux:build": "tauri build"

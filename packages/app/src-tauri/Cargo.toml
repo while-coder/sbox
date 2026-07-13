@@ -38,6 +38,10 @@ tauri-plugin-clipboard-manager = "2.3.2"
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3.2", features = ["NSProcessInfo"] }
+screencapturekit = { version = "8", features = ["macos_14_0"] }
+
 # dev 下也优化依赖（PNG 编码 / 截图捕获等），显著加快 tauri dev 的截图速度；
 # 只优化依赖、不优化本 crate，增量编译仍快。
 [profile.dev.package."*"]

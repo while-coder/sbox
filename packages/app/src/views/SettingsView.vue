@@ -1,7 +1,24 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { settings, saveSettings } from '../settings'
 import { autostartStatus, bossKeyStatus, screenshotKeyStatus, setAutostart } from '../system'
+import { useUpdater } from '../useUpdater'
+
+const SETTING_TABS = [
+  { key: 'general', label: '通用' },
+  { key: 'shortcuts', label: '快捷键' },
+  { key: 'about', label: '关于' },
+] as const
+type SettingsTab = (typeof SETTING_TABS)[number]['key']
+
+const activeTab = ref<SettingsTab>('general')
+const {
+  appVersion,
+  updateStatus,
+  updateStatusText,
+  checkForUpdate,
+  initUpdaterVersion,
+} = useUpdater()
 
 type KeyTarget = 'bossKey' | 'screenshotKey'
 const recordingTarget = ref<KeyTarget | null>(null)
@@ -72,13 +89,35 @@ async function onAutostartToggle(event: Event) {
   await setAutostart(enabled, !enabled)
   saveSettings()
 }
+
+async function onCheckUpdate() {
+  await checkForUpdate({ silent: false })
+}
+
+onMounted(() => {
+  void initUpdaterVersion()
+})
 </script>
 
 <template>
   <div class="settings">
     <h2 class="page-title">设置</h2>
 
-    <section class="card">
+    <div class="settings-tabs" role="tablist" aria-label="设置分类">
+      <button
+        v-for="tab in SETTING_TABS"
+        :key="tab.key"
+        type="button"
+        role="tab"
+        :class="{ active: activeTab === tab.key }"
+        :aria-selected="activeTab === tab.key"
+        @click="activeTab = tab.key"
+      >
+        {{ tab.label }}
+      </button>
+    </div>
+
+    <section v-show="activeTab === 'general'" class="card">
       <div class="row">
         <div class="row-text">
           <div class="row-label">开机启动</div>
@@ -110,7 +149,7 @@ async function onAutostartToggle(event: Event) {
       </div>
     </section>
 
-    <section class="card">
+    <section v-show="activeTab === 'shortcuts'" class="card">
       <div class="row">
         <div class="row-text">
           <div class="row-label">启用老板键</div>
@@ -160,7 +199,7 @@ async function onAutostartToggle(event: Event) {
       </div>
     </section>
 
-    <section class="card">
+    <section v-show="activeTab === 'shortcuts'" class="card">
       <div class="row">
         <div class="row-text">
           <div class="row-label">启用截图快捷键</div>
@@ -221,13 +260,55 @@ async function onAutostartToggle(event: Event) {
       </div>
     </section>
 
-    <p class="hint">CommandOrControl 在 Windows/Linux 上为 Ctrl，在 macOS 上为 ⌘。</p>
+    <p v-show="activeTab === 'shortcuts'" class="hint">CommandOrControl 在 Windows/Linux 上为 Ctrl，在 macOS 上为 ⌘。</p>
+
+    <section v-show="activeTab === 'about'" class="card about-card">
+      <div class="about-header">
+        <div class="about-mark" aria-hidden="true">S</div>
+        <div class="about-copy">
+          <div class="about-name">sbox</div>
+          <div class="about-version">版本 {{ appVersion || '读取中…' }}</div>
+        </div>
+      </div>
+
+      <div class="row update-row">
+        <div class="row-text">
+          <div class="row-label">应用更新</div>
+          <div class="row-desc" :class="{ 'update-error': updateStatus === 'error' }">
+            {{ updateStatusText }}
+          </div>
+        </div>
+        <button
+          type="button"
+          class="btn btn-outline update-button"
+          :disabled="updateStatus === 'checking' || updateStatus === 'downloading'"
+          @click="onCheckUpdate"
+        >
+          {{ updateStatus === 'checking' ? '检查中…' : '检查更新' }}
+        </button>
+      </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
 .settings { max-width: 720px; margin: 0 auto; }
 .page-title { font-size: 18px; font-weight: 600; margin: 0 0 20px; }
+
+.settings-tabs {
+  display: flex; gap: 4px;
+  padding: 4px; margin-bottom: 16px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--card);
+}
+.settings-tabs button {
+  flex: 1 1 0; min-height: 36px;
+  border: 0; border-radius: 6px;
+  background: transparent; color: var(--fg-muted);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.settings-tabs button:hover { background: var(--bg); color: var(--fg); }
+.settings-tabs button.active { background: var(--primary); color: #fff; }
 
 .card {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
@@ -294,4 +375,28 @@ async function onAutostartToggle(event: Event) {
 .status.idle .status-dot { background: var(--fg-muted); }
 
 .hint { font-size: 12px; color: var(--fg-muted); margin: 0; }
+
+.about-card { padding: 4px 16px; }
+.about-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 0; border-bottom: 1px solid var(--border);
+}
+.about-mark {
+  display: grid; place-items: center;
+  width: 44px; height: 44px; flex: 0 0 auto;
+  border-radius: var(--radius); background: var(--primary); color: #fff;
+  font-size: 22px; font-weight: 700;
+}
+.about-copy { min-width: 0; }
+.about-name { font-size: 17px; font-weight: 600; }
+.about-version { margin-top: 2px; color: var(--fg-muted); font-size: 12px; }
+.update-row { border-top: 0; }
+.update-button { flex: 0 0 auto; min-width: 96px; }
+.row-desc.update-error { color: var(--danger); }
+
+@media (max-width: 560px) {
+  .row { align-items: flex-start; }
+  .update-row { flex-direction: column; }
+  .update-button { width: 100%; }
+}
 </style>

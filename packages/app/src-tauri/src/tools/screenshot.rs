@@ -279,16 +279,86 @@ fn pick_monitor(app: &tauri::AppHandle) -> Result<Monitor, String> {
         .ok_or_else(|| "未找到显示器".to_string())
 }
 
+fn capture_monitor_legacy(monitor: &Monitor) -> Result<(Vec<u8>, u32, u32), String> {
+    let image = monitor.capture_image().map_err(|e| e.to_string())?;
+    let (width, height) = (image.width(), image.height());
+    Ok((image.into_raw(), width, height))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn capture_monitor(monitor: &Monitor) -> Result<(Vec<u8>, u32, u32), String> {
+    capture_monitor_legacy(monitor)
+}
+
+#[cfg(target_os = "macos")]
+fn capture_monitor(monitor: &Monitor) -> Result<(Vec<u8>, u32, u32), String> {
+    use objc2_foundation::{NSOperatingSystemVersion, NSProcessInfo};
+    use screencapturekit::screenshot_manager::{CGImageExt, SCScreenshotManager};
+    use screencapturekit::shareable_content::SCShareableContent;
+    use screencapturekit::stream::{
+        configuration::SCStreamConfiguration, content_filter::SCContentFilter,
+    };
+
+    // SCScreenshotManager 从 macOS 14 开始可用；旧系统保留原来的 xcap 路径，
+    // 避免因为修复授权问题而缩小应用原有的系统兼容范围。
+    let supports_screenshot_manager =
+        NSProcessInfo::processInfo().isOperatingSystemAtLeastVersion(NSOperatingSystemVersion {
+            majorVersion: 14,
+            minorVersion: 0,
+            patchVersion: 0,
+        });
+    if !supports_screenshot_manager {
+        return capture_monitor_legacy(monitor);
+    }
+
+    let display_id = monitor.id().map_err(|e| e.to_string())?;
+    let content = SCShareableContent::get().map_err(|e| e.to_string())?;
+    let displays = content.displays();
+    let display = displays
+        .iter()
+        .find(|display| display.display_id() == display_id)
+        .ok_or_else(|| format!("ScreenCaptureKit 未找到显示器 {display_id}"))?;
+
+    // SCDisplay 的宽高单位是逻辑点，而截图输出尺寸使用物理像素。
+    let scale = monitor.scale_factor().map_err(|e| e.to_string())?;
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
+    let output_width = ((display.width() as f64) * f64::from(scale))
+        .round()
+        .clamp(1.0, u32::MAX as f64) as u32;
+    let output_height = ((display.height() as f64) * f64::from(scale))
+        .round()
+        .clamp(1.0, u32::MAX as f64) as u32;
+
+    let filter = SCContentFilter::create()
+        .with_display(display)
+        .with_excluding_windows(&[])
+        .try_build()
+        .map_err(|e| e.to_string())?;
+    let configuration = SCStreamConfiguration::new()
+        .with_width(output_width)
+        .with_height(output_height)
+        // 旧的 CGWindowListCreateImage 不会把鼠标烘焙进截图，保持原有行为。
+        .with_shows_cursor(false);
+    let image = SCScreenshotManager::capture_image(&filter, &configuration)
+        .map_err(|e| format!("ScreenCaptureKit 截图失败: {e}"))?;
+    let width = u32::try_from(image.width()).map_err(|_| "截图宽度过大".to_string())?;
+    let height = u32::try_from(image.height()).map_err(|_| "截图高度过大".to_string())?;
+    let rgba = image.rgba_data().map_err(|e| e.to_string())?;
+    Ok((rgba, width, height))
+}
+
 #[tauri::command]
 pub fn screenshot_capture(
     app: tauri::AppHandle,
     state: tauri::State<CaptureState>,
 ) -> Result<(), String> {
     let monitor = pick_monitor(&app)?;
-    let img = monitor.capture_image().map_err(|e| e.to_string())?;
-    let (width, height) = (img.width(), img.height());
+    let (rgba, width, height) = capture_monitor(&monitor)?;
     let (preview_width, preview_height) = preview_size(width, height);
-    let rgba = img.into_raw();
     let preview_rgba = downsample_nearest(&rgba, width, height, preview_width, preview_height);
     let meta = CaptureMeta {
         width,
