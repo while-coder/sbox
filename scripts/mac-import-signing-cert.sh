@@ -26,7 +26,8 @@ security import "$P12_PATH" -k "$KEYCHAIN_PATH" \
 security find-certificate -c "$IDENTITY" -p "$KEYCHAIN_PATH" > "$CERT_PATH"
 
 echo "正在信任自签名证书..."
-security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN_PATH" "$CERT_PATH"
+sudo -n security add-trusted-cert -d -r trustRoot -p codeSign \
+  -k /Library/Keychains/System.keychain "$CERT_PATH"
 
 echo "正在授权 codesign 访问私钥..."
 security set-key-partition-list -S apple-tool:,apple:,codesign: \
