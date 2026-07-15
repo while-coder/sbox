@@ -55,14 +55,17 @@ jobs:
 
   release-macos:
     needs: [check, prepare-release]
-    # macos-latest 已切换到 macOS 26；无界面 runner 写入自签名证书信任时会阻塞。
-    # 固定到此前验证可用的 macOS 15，避免基础镜像升级悄悄改变签名行为。
-    runs-on: macos-15
+    # screencapturekit 8 / apple-metal 0.8 使用 Xcode 26 SDK 中的 Metal API。
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        rust-target: [aarch64-apple-darwin, x86_64-apple-darwin]
+        include:
+          - runner: macos-26
+            rust-target: aarch64-apple-darwin
+          - runner: macos-26-intel
+            rust-target: x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v5
 
@@ -87,10 +90,10 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             packages/app/src-tauri/target
-          key: macos-latest-${{ matrix.rust-target }}-cargo-${{ hashFiles('packages/app/src-tauri/Cargo.lock') }}
+          key: ${{ matrix.runner }}-${{ matrix.rust-target }}-cargo-${{ hashFiles('packages/app/src-tauri/Cargo.lock') }}
           restore-keys: |
-            macos-latest-${{ matrix.rust-target }}-cargo-
-            macos-latest-cargo-
+            ${{ matrix.runner }}-${{ matrix.rust-target }}-cargo-
+            ${{ matrix.runner }}-cargo-
 
       - run: pnpm install --frozen-lockfile
 
