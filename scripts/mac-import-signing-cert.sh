@@ -13,14 +13,14 @@ P12_PATH="$RUNNER_TEMP/sbox-signing.p12"
 CERT_PATH="$RUNNER_TEMP/sbox-signing.crt"
 
 printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$P12_PATH"
-openssl pkcs12 -in "$P12_PATH" -nokeys \
-  -passin env:APPLE_CERTIFICATE_PASSWORD -out "$CERT_PATH"
 
 security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
 security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 security import "$P12_PATH" -k "$KEYCHAIN_PATH" \
   -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+# 从已导入的钥匙串读取证书，避免 OpenSSL 3 拒绝旧 P12 中的 RC2 加密。
+security find-certificate -c "$IDENTITY" -p "$KEYCHAIN_PATH" > "$CERT_PATH"
 security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN_PATH" "$CERT_PATH"
 security set-key-partition-list -S apple-tool:,apple:,codesign: \
   -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
