@@ -55,7 +55,10 @@ jobs:
 
   release-macos:
     needs: [check, prepare-release]
-    runs-on: macos-latest
+    # macos-latest 已切换到 macOS 26；无界面 runner 写入自签名证书信任时会阻塞。
+    # 固定到此前验证可用的 macOS 15，避免基础镜像升级悄悄改变签名行为。
+    runs-on: macos-15
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
