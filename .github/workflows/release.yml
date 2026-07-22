@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -44,86 +48,18 @@ jobs:
       project-path: packages/app
       cargo-lock-path: packages/app/src-tauri/Cargo.lock
       cargo-target-path: packages/app/src-tauri/target
-      cache-key-prefix: cargo
       tag-name: ${{ needs.check.outputs.tag }}
       release-name: sbox v${{ needs.check.outputs.version }}
       release-body: ${{ needs.check.outputs.notes }}
-      matrix-json: >-
-        [{"platform":"ubuntu-24.04","args":"","rust-target":""},{"platform":"windows-latest","args":"","rust-target":""},{"platform":"windows-latest","args":"--target aarch64-pc-windows-msvc","rust-target":"aarch64-pc-windows-msvc"}]
-      linux-packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libpipewire-0.3-dev libgbm-dev patchelf
     secrets: inherit
 
-  release-macos:
-    needs: [check, prepare-release]
-    # screencapturekit 8 / apple-metal 0.8 使用 Xcode 26 SDK 中的 Metal API。
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-26
-            rust-target: aarch64-apple-darwin
-          - runner: macos-26-intel
-            rust-target: x86_64-apple-darwin
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.33.0
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-target }}
-
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            packages/app/src-tauri/target
-          key: ${{ matrix.runner }}-${{ matrix.rust-target }}-cargo-${{ hashFiles('packages/app/src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ matrix.runner }}-${{ matrix.rust-target }}-cargo-
-            ${{ matrix.runner }}-cargo-
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Import stable self-signed certificate
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: bash scripts/mac-import-signing-cert.sh
-
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: packages/app
-          tagName: ${{ needs.check.outputs.tag }}
-          releaseName: sbox v${{ needs.check.outputs.version }}
-          releaseBody: ${{ needs.check.outputs.notes }}
-          args: --target ${{ matrix.rust-target }}
-
   publish-manifest:
-    needs: [check, release-desktop, release-macos]
-    if: ${{ !cancelled() && needs.release-desktop.result == 'success' && needs.release-macos.result == 'success' }}
+    needs: [check, release-desktop]
+    if: ${{ !cancelled() && needs.release-desktop.result == 'success' }}
     uses: while-coder/workflows/.github/workflows/tauri-updater-manifest.yml@main
     with:
       product-prefix: sbox
       tag-name: ${{ needs.check.outputs.tag }}
       version: ${{ needs.check.outputs.version }}
       release-notes: ${{ needs.check.outputs.notes }}
-      output-name: latest.json
-      updater-title: Updater Manifests
     secrets: inherit
