@@ -140,7 +140,6 @@ pub fn run() {
     let builder = builder
         .plugin(logging_plugin())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init());
@@ -169,6 +168,7 @@ pub fn run() {
             tools::gdrive_login::gdrive_oauth_login,
             tools::keystore_gen::keystore_check_java,
             tools::keystore_gen::keystore_generate,
+            tools::save_file::read_image_file,
             tools::save_file::save_base64_file,
             tools::screenshot::screenshot_clear,
             tools::screenshot::screenshot_crop_pixels,
