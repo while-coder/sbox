@@ -4,15 +4,58 @@ mod tools;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager,
+    Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
 
 /// 显示并聚焦主窗口。
 fn show_main(app: &tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+    log::debug!("收到主窗口唤醒请求");
+    let task_app = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        let window = match task_app.get_webview_window("main") {
+            Some(window) => {
+                log::debug!("复用现有 main 窗口");
+                window
+            }
+            None => {
+                log::warn!("main 窗口已不存在，正在重新创建");
+                match WebviewWindowBuilder::new(
+                    &task_app,
+                    "main",
+                    WebviewUrl::App("index.html".into()),
+                )
+                .title("sbox")
+                .inner_size(800.0, 600.0)
+                .min_inner_size(600.0, 400.0)
+                .resizable(true)
+                .build()
+                {
+                    Ok(window) => window,
+                    Err(error) => {
+                        log::error!("唤醒主窗口失败（recreate）：{error}");
+                        return;
+                    }
+                }
+            }
+        };
+
+        // Windows 隐藏或最小化后的恢复顺序应先解除最小化，再显示并聚焦。
+        // 托盘与单实例回调不保证运行在 UI 线程，因此统一派发到主线程执行。
+        if let Err(error) = window.unminimize() {
+            log::error!("唤醒主窗口失败（unminimize）：{error}");
+        }
+        if let Err(error) = window.show() {
+            log::error!("唤醒主窗口失败（show）：{error}");
+        }
+        if let Err(error) = window.set_focus() {
+            log::error!("唤醒主窗口失败（set_focus）：{error}");
+        }
+        match window.is_visible() {
+            Ok(visible) => log::info!("主窗口唤醒完成：visible={visible}"),
+            Err(error) => log::error!("读取主窗口可见状态失败：{error}"),
+        }
+    }) {
+        log::error!("唤醒主窗口失败（run_on_main_thread）：{error}");
     }
 }
 
@@ -109,6 +152,12 @@ pub fn run() {
         .setup(|app| {
             log::info!("sbox v{} 启动", app.package_info().version);
             setup_tray(app)?;
+            match app.get_webview_window("main") {
+                Some(window) => {
+                    log::info!("main 窗口初始化完成：visible={:?}", window.is_visible())
+                }
+                None => log::error!("main 窗口初始化失败：窗口不存在"),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
