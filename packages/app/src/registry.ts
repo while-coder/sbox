@@ -23,6 +23,22 @@ export const NATIVE_TOOLS: ToolDef[] = [
     component: () => import('./tools/keystore-gen/KeystoreGenView.vue'),
   },
   {
+    key: 'ssh-keygen',
+    label: 'SSH 密钥生成',
+    description: '生成 Ed25519 或 RSA 4096 私钥和公钥，可选密码保护，并给出 OpenSSH SHA-256 指纹',
+    category: 'genverify',
+    keywords: ['ssh', 'key', 'keygen', 'ed25519', 'rsa', 'rsa4096', 'private key', 'public key', 'fingerprint', '密钥', '私钥', '公钥', '证书', '指纹'],
+    component: () => import('./tools/ssh-keygen/SshKeygenView.vue'),
+  },
+  {
+    key: 'translator',
+    label: '网页翻译',
+    description: '在应用内切换使用 Google、百度、Bing、有道、DeepL 和混元翻译',
+    category: 'devtool',
+    keywords: ['translate', 'translator', 'google translate', 'baidu fanyi', 'bing translator', 'youdao', 'deepl', 'tencent', 'hunyuan', '翻译', '谷歌翻译', '百度翻译', '必应翻译', '有道翻译', '混元翻译'],
+    component: () => import('./tools/translator/TranslatorView.vue'),
+  },
+  {
     key: 'xiaoai-login',
     label: '小爱登录',
     description: '登录小米账号，导出 sbot channel.xiaoai 所需的 userId / passToken / loginDeviceId / deviceName',

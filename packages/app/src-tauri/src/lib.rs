@@ -127,6 +127,12 @@ pub fn run() {
             tools::screenshot::screenshot_latest,
             tools::screenshot::screenshot_latest_pixels,
             tools::screenshot::screenshot_save_selection,
+            tools::ssh_keygen::ssh_key_generate,
+            tools::translator::translator_close,
+            tools::translator::translator_navigate,
+            tools::translator::translator_open,
+            tools::translator::translator_reload,
+            tools::translator::translator_set_bounds,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sbox");

@@ -12,7 +12,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # macos-private-api：macOS 透明窗口（截图覆盖层）必需，否则 transparent 被系统忽略、显示为白底。
-tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api", "unstable"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-process = "2"
@@ -28,6 +28,7 @@ sha1 = "0.10"
 digest = "0.10"
 base64 = "0.22"
 rand = "0.8"
+ssh-key = { version = "0.6.7", default-features = false, features = ["std", "ed25519", "rsa", "encryption", "getrandom"] }
 urlencoding = "2"
 open = "5"
 log = "0.4"
