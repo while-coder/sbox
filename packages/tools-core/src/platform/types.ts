@@ -1,6 +1,6 @@
 /**
- * 平台适配层接口 —— 工具组件唯一与宿主（Web / Tauri）耦合的部分：文件落盘。
- * Web 宿主用浏览器下载实现；Tauri 宿主用「保存对话框 + Rust 落盘」实现。
+ * 平台适配层接口 —— 工具组件唯一与宿主（Web / Tauri）耦合的部分。
+ * Web 宿主用浏览器文件事件/下载；Tauri 宿主补充原生拖拽读取和落盘。
  * 工具内部通过 getPlatform() 取用，不直接依赖任何宿主 API。
  */
 
@@ -13,6 +13,15 @@ export interface SaveItem {
 }
 
 export interface Platform {
+  /**
+   * 监听宿主原生文件拖放。Web 宿主不实现，由 HTML5 drop 事件处理。
+   * Tauri Windows 默认会拦截 HTML5 drop，必须通过此入口读取系统拖入的路径。
+   */
+  listenFileDrops?(
+    onFiles: (files: File[]) => void,
+    onError: (message: string) => void,
+  ): Promise<() => void>
+
   /**
    * 保存单个二进制文件。
    * @param bytes       原始字节

@@ -5,6 +5,7 @@ import {
   OUTPUT_FORMATS, extOf, convert, formatBytes,
   type RotateMode,
 } from './image-convert'
+import { filesFromClipboard } from './file-input'
 
 /** 转换完成后的轻量结果（用于展示，不含字节本身）。 */
 interface DoneInfo { width: number; height: number; bytes: number }
@@ -69,15 +70,29 @@ function onDrop(e: DragEvent) {
 }
 
 function onPaste(e: ClipboardEvent) {
-  const img = [...(e.clipboardData?.items ?? [])]
-    .filter(i => i.type.startsWith('image/'))
-    .map(i => i.getAsFile())
-    .find((f): f is File => !!f)
-  if (img) { e.preventDefault(); setFile(img) }
+  const file = filesFromClipboard(e)[0]
+  if (file) { e.preventDefault(); setFile(file) }
 }
-onMounted(() => window.addEventListener('paste', onPaste))
+
+let stopNativeDrop: (() => void) | null = null
+let disposed = false
+onMounted(async () => {
+  window.addEventListener('paste', onPaste)
+  try {
+    const stop = await getPlatform().listenFileDrops?.(
+      files => { if (files[0]) setFile(files[0]) },
+      message => { error.value = message },
+    )
+    if (disposed) stop?.()
+    else stopNativeDrop = stop ?? null
+  } catch (e: any) {
+    error.value = `初始化拖放失败：${String(e?.message || e)}`
+  }
+})
 onUnmounted(() => {
+  disposed = true
   window.removeEventListener('paste', onPaste)
+  stopNativeDrop?.()
   if (pic.value) URL.revokeObjectURL(pic.value.srcUrl)
 })
 

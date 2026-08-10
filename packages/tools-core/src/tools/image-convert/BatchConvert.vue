@@ -4,6 +4,7 @@ import { getPlatform, type SaveItem } from '../../platform'
 import {
   OUTPUT_FORMATS, extOf, convert, formatBytes,
 } from './image-convert'
+import { filesFromClipboard } from './file-input'
 
 /** 转换完成后的轻量结果（用于展示，不含字节本身）。 */
 interface DoneInfo { width: number; height: number; bytes: number }
@@ -61,15 +62,29 @@ function onDrop(e: DragEvent) {
 }
 
 function onPaste(e: ClipboardEvent) {
-  const imgs = [...(e.clipboardData?.items ?? [])]
-    .filter(i => i.type.startsWith('image/'))
-    .map(i => i.getAsFile())
-    .filter((f): f is File => !!f)
-  if (imgs.length) { e.preventDefault(); addFiles(imgs) }
+  const files = filesFromClipboard(e)
+  if (files.length) { e.preventDefault(); addFiles(files) }
 }
-onMounted(() => window.addEventListener('paste', onPaste))
+
+let stopNativeDrop: (() => void) | null = null
+let disposed = false
+onMounted(async () => {
+  window.addEventListener('paste', onPaste)
+  try {
+    const stop = await getPlatform().listenFileDrops?.(
+      files => addFiles(files),
+      message => { error.value = message },
+    )
+    if (disposed) stop?.()
+    else stopNativeDrop = stop ?? null
+  } catch (e: any) {
+    error.value = `初始化拖放失败：${String(e?.message || e)}`
+  }
+})
 onUnmounted(() => {
+  disposed = true
   window.removeEventListener('paste', onPaste)
+  stopNativeDrop?.()
   items.value.forEach(i => URL.revokeObjectURL(i.srcUrl))
 })
 

@@ -19,6 +19,7 @@
     "dialog:allow-save",
     "dialog:allow-open",
     "dialog:allow-message",
+    "fs:allow-read-file",
     "process:default",
     "updater:default",
     "global-shortcut:allow-register",

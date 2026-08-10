@@ -3,8 +3,10 @@
  * WebView 的 <a download> 在 Tauri 中不可靠，统一走「保存对话框选路径 → Rust 落盘」。
  */
 import { save, open } from '@tauri-apps/plugin-dialog'
-import { join } from '@tauri-apps/api/path'
+import { basename, join } from '@tauri-apps/api/path'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { readFile } from '@tauri-apps/plugin-fs'
 import { bytesToBase64, stringToBase64, type Platform, type SaveItem } from '@sbox/tools-core'
 
 async function writeBase64(path: string, base64: string): Promise<void> {
@@ -12,6 +14,23 @@ async function writeBase64(path: string, base64: string): Promise<void> {
 }
 
 export const tauriPlatform: Platform = {
+  async listenFileDrops(onFiles, onError) {
+    return getCurrentWebview().onDragDropEvent(async (event) => {
+      if (event.payload.type !== 'drop') return
+
+      const results = await Promise.allSettled(event.payload.paths.map(async (path) => {
+        const [bytes, name] = await Promise.all([readFile(path), basename(path)])
+        return new File([bytes], name)
+      }))
+      const files = results
+        .filter((result): result is PromiseFulfilledResult<File> => result.status === 'fulfilled')
+        .map(result => result.value)
+      const failures = results.filter(result => result.status === 'rejected')
+
+      if (files.length) onFiles(files)
+      if (failures.length) onError(`有 ${failures.length} 个拖入文件读取失败`)
+    })
+  },
   async saveBinary(bytes, defaultName) {
     const path = await save({ defaultPath: defaultName })
     if (!path) return false
