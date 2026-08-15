@@ -166,6 +166,8 @@ pub fn run() {
             tools::xiaoai_login::xiaoai_logout,
             tools::xiaoai_login::xiaoai_list_devices,
             tools::gdrive_login::gdrive_oauth_login,
+            tools::external::open_external_url,
+            tools::file_locks::file_locks_check,
             tools::keystore_gen::keystore_check_java,
             tools::keystore_gen::keystore_generate,
             tools::save_file::read_image_file,

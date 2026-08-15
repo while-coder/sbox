@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { getCurrentWindow, primaryMonitor } from '@tauri-apps/api/window'
 import type { Window } from '@tauri-apps/api/window'
 import { settings } from '../../settings'
 
@@ -76,6 +76,19 @@ async function makeOverlayIdle(win: Window): Promise<void> {
   await win.hide()
 }
 
+/** 首次展示前预设整屏尺寸，避免默认 800×600 窗口被可见地放大。 */
+async function primeOverlayBounds(overlay: WebviewWindow): Promise<void> {
+  try {
+    const monitor = await primaryMonitor()
+    if (monitor) {
+      await overlay.setPosition(monitor.position)
+      await overlay.setSize(monitor.size)
+    }
+  } catch (error) {
+    console.warn('预设截图覆盖层尺寸失败：', error)
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -101,6 +114,9 @@ async function createOverlay(): Promise<WebviewWindow> {
       reject(new Error(`创建截图覆盖层失败：${event.payload}`))
     })
   })
+  // 首次 show 前先给隐藏窗口一个真实的显示器尺寸。否则原生窗口会以默认尺寸创建，
+  // 再在第一张截图时放大到整屏，Windows 上会出现明显的缩放入场效果。
+  await primeOverlayBounds(overlay)
   // WebviewWindow 构造只会发起异步创建；必须等原生窗口存在后再设置穿透和隐藏。
   await makeOverlayIdle(overlay)
   return overlay
@@ -112,6 +128,7 @@ export async function ensureOverlay(): Promise<WebviewWindow> {
   const existing = await WebviewWindow.getByLabel(OVERLAY_LABEL)
   if (existing) {
     // 保持隐藏；真正的 show 由 CAPTURE_READY 回调在定位并绘制画面后执行。
+    await primeOverlayBounds(existing)
     await makeOverlayIdle(existing)
     return existing
   }

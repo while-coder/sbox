@@ -4,7 +4,7 @@
     {
       "label": "ui:kill",
       "type": "shell",
-      "command": "npx kill-port 1421",
+      "command": "npx kill-port 1400",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
@@ -13,7 +13,7 @@
       "type": "shell",
       "isBackground": true,
       "command": "pnpm",
-      "args": ["vite", "dev", "--port", "1421"],
+      "args": ["vite", "dev", "--port", "1400"],
       "options": { "cwd": "${workspaceFolder}/packages/app" },
       "problemMatcher": {
         "owner": "vite",

@@ -4,10 +4,10 @@
  * 注意：所有全局快捷键统一在 applyShortcuts 里 unregisterAll 后一起注册，
  * 避免某一个单独 unregisterAll 把另一个清掉。
  */
-import { ref, watch } from 'vue'
+import { ref, watch, type WatchStopHandle } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { register, unregisterAll } from '@tauri-apps/plugin-global-shortcut'
+import { isRegistered, register, unregisterAll } from '@tauri-apps/plugin-global-shortcut'
 import { settings } from './settings'
 import { startScreenshot } from './tools/screenshot/screenshot'
 
@@ -19,6 +19,8 @@ type Status = { state: 'ok' | 'error' | 'idle'; message: string }
 export const bossKeyStatus = ref<Status>({ state: 'idle', message: '' })
 /** 截图快捷键当前注册状态。 */
 export const screenshotKeyStatus = ref<Status>({ state: 'idle', message: '' })
+/** 快捷键重新登记期间，避免连续更改时让旧结果覆盖最新配置。 */
+export const shortcutsRefreshing = ref(false)
 /** 开机启动当前设置状态。 */
 export const autostartStatus = ref<Status>({ state: 'idle', message: '' })
 
@@ -80,25 +82,64 @@ async function registerOne(
     await register(key, (event) => { if (event.state === 'Pressed') onPressed() })
     status.value = { state: 'ok', message: `已生效：${key}` }
   } catch (e) {
+    // Windows 在同一应用重复注册时也可能返回错误；若插件仍记录为本应用已注册，
+    // 它就是可用的，不应把 UI 标成失败。
+    try {
+      if (await isRegistered(key)) {
+        status.value = { state: 'ok', message: `已生效：${key}` }
+        return
+      }
+    } catch (verifyError) {
+      console.error('读取快捷键注册状态失败：', key, verifyError)
+    }
     status.value = { state: 'error', message: '注册失败，可能与系统或其他程序冲突，请换一组' }
     console.error('注册快捷键失败：', key, e)
   }
 }
 
-/** 按当前设置（重新）注册所有全局快捷键。先整体清空再统一注册。 */
-export async function applyShortcuts(): Promise<void> {
-  await unregisterAll()
-  await registerOne(settings.bossKeyEnabled, settings.bossKey, bossKeyStatus, '老板键已停用', () => void toggleWindow())
-  await registerOne(settings.screenshotEnabled, settings.screenshotKey, screenshotKeyStatus, '截图快捷键已停用', () => void startScreenshot())
+let latestRefreshId = 0
+let refreshQueue = Promise.resolve()
+
+/**
+ * 按当前设置（重新）注册所有全局快捷键。
+ * 全局注册接口需要先清空再登记；把连续变更串行化，并只执行最后一次配置，
+ * 这样录制或连点预设时状态不会被较早的异步结果覆盖。
+ */
+export function applyShortcuts(): Promise<void> {
+  const refreshId = ++latestRefreshId
+  shortcutsRefreshing.value = true
+  bossKeyStatus.value = { state: 'idle', message: '正在刷新快捷键…' }
+  screenshotKeyStatus.value = { state: 'idle', message: '正在刷新快捷键…' }
+
+  const refresh = async () => {
+    if (refreshId !== latestRefreshId) return
+    try {
+      await unregisterAll()
+      if (refreshId !== latestRefreshId) return
+      await registerOne(settings.bossKeyEnabled, settings.bossKey, bossKeyStatus, '老板键已停用', () => void toggleWindow())
+      await registerOne(settings.screenshotEnabled, settings.screenshotKey, screenshotKeyStatus, '截图快捷键已停用', () => void startScreenshot())
+    } catch (e) {
+      const message = '刷新快捷键失败，请重试'
+      bossKeyStatus.value = { state: 'error', message }
+      screenshotKeyStatus.value = { state: 'error', message }
+      console.error('刷新全局快捷键失败：', e)
+    } finally {
+      if (refreshId === latestRefreshId) shortcutsRefreshing.value = false
+    }
+  }
+
+  refreshQueue = refreshQueue.then(refresh, refresh)
+  return refreshQueue
 }
 
 /** 兼容旧调用名。 */
 export const applyBossKey = applyShortcuts
 
 /** 快捷键相关字段变化时重注册，切换其它设置不受影响。 */
-export function watchBossKey(): void {
-  watch(
+export function watchBossKey(): WatchStopHandle {
+  return watch(
     () => [settings.bossKeyEnabled, settings.bossKey, settings.screenshotEnabled, settings.screenshotKey] as const,
     () => { void applyShortcuts() },
+    { flush: 'sync' },
   )
 }

@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [vue()],
   clearScreen: false,
   server: {
-    port: 1421,
+    port: 1400,
     strictPort: true,
   },
   envPrefix: ['VITE_', 'TAURI_'],

@@ -5,8 +5,8 @@
   "identifier": "com.wandergame.sbox",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1421",
-    "beforeDevCommand": "pnpm --filter @sbox/app exec vite dev --port 1421",
+    "devUrl": "http://localhost:1400",
+    "beforeDevCommand": "pnpm --filter @sbox/app exec vite dev --port 1400",
     "beforeBuildCommand": "pnpm --filter @sbox/app exec vite build"
   },
   "app": {

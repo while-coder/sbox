@@ -1,6 +1,8 @@
 pub mod autostart;
+pub mod external;
 pub mod gdrive_login;
 pub mod keystore_gen;
+pub mod file_locks;
 pub mod save_file;
 pub mod screenshot;
 pub mod ssh_keygen;

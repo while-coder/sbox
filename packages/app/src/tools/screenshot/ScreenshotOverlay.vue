@@ -142,6 +142,9 @@ onMounted(async () => {
       console.error('截图画面加载失败：', err)
     }
     const drawAt = performance.now()
+    // 首次挂载时让画布先按已设置的窗口尺寸完成一次布局，再显示原生窗口；
+    // 避免 Windows 把默认尺寸的 WebView 放大到全屏，形成缩放动画。
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     if (!(await w.isVisible())) await w.show()
     await w.setIgnoreCursorEvents(false)
     await w.setFocus()

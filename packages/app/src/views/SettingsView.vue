@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
+import { Box, Github, RefreshCw } from 'lucide-vue-next'
 import { settings, saveSettings } from '../settings'
-import { autostartStatus, bossKeyStatus, screenshotKeyStatus, setAutostart } from '../system'
+import { autostartStatus, bossKeyStatus, setAutostart } from '../system'
 import { useUpdater } from '../useUpdater'
 
 const SETTING_TABS = [
@@ -20,8 +22,9 @@ const {
   initUpdaterVersion,
 } = useUpdater()
 
-type KeyTarget = 'bossKey' | 'screenshotKey'
+type KeyTarget = 'bossKey'
 const recordingTarget = ref<KeyTarget | null>(null)
+const aboutError = ref('')
 
 /** 几个常用预设组合键。 */
 const PRESETS = [
@@ -29,12 +32,6 @@ const PRESETS = [
   'CommandOrControl+Shift+X',
   'CommandOrControl+Alt+B',
   'Alt+Q',
-]
-const SHOT_PRESETS = [
-  'CommandOrControl+Shift+A',
-  'CommandOrControl+Shift+S',
-  'CommandOrControl+Alt+A',
-  'PrintScreen',
 ]
 
 /** 把键名转为 Tauri 加速键 token；非法/纯修饰键返回空串。 */
@@ -92,6 +89,15 @@ async function onAutostartToggle(event: Event) {
 
 async function onCheckUpdate() {
   await checkForUpdate({ silent: false })
+}
+
+async function openGitHub() {
+  aboutError.value = ''
+  try {
+    await invoke('open_external_url', { url: 'https://github.com/while-coder/sbox' })
+  } catch (e: any) {
+    aboutError.value = `无法打开 GitHub：${String(e?.message || e)}`
+  }
 }
 
 onMounted(() => {
@@ -199,94 +205,44 @@ onMounted(() => {
       </div>
     </section>
 
-    <section v-show="activeTab === 'shortcuts'" class="card">
-      <div class="row">
-        <div class="row-text">
-          <div class="row-label">启用截图快捷键</div>
-          <div class="row-desc">全局快捷键，一键发起全屏框选截图。</div>
-        </div>
-        <label class="switch">
-          <input type="checkbox" v-model="settings.screenshotEnabled" @change="onToggle" />
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <div class="row-label">截图时隐藏 sbox 窗口</div>
-          <div class="row-desc">发起截图前先隐藏主窗口，避免把 sbox 自己截进去；关闭后将连同窗口一起截取。</div>
-        </div>
-        <label class="switch">
-          <input type="checkbox" v-model="settings.screenshotHideSelf" @change="onToggle" />
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="row" :class="{ disabled: !settings.screenshotEnabled }">
-        <div class="row-text">
-          <div class="row-label">快捷键</div>
-          <div class="row-desc">点击下方按钮后按下组合键录制。</div>
-        </div>
-        <button
-          class="recorder"
-          :class="{ recording: recordingTarget === 'screenshotKey' }"
-          :disabled="!settings.screenshotEnabled"
-          @click="recordingTarget = 'screenshotKey'"
-          @blur="recordingTarget = null"
-          @keydown="onRecordKeydown"
-        >
-          {{ recordingTarget === 'screenshotKey' ? '按下组合键…' : settings.screenshotKey }}
-        </button>
-      </div>
-
-      <div class="presets" :class="{ disabled: !settings.screenshotEnabled }">
-        <span class="presets-label">预设：</span>
-        <button
-          v-for="p in SHOT_PRESETS"
-          :key="p"
-          class="preset-chip"
-          :class="{ active: settings.screenshotKey === p }"
-          :disabled="!settings.screenshotEnabled"
-          @click="applyPreset('screenshotKey', p)"
-        >{{ p }}</button>
-      </div>
-
-      <div
-        v-if="settings.screenshotEnabled && screenshotKeyStatus.message"
-        class="status"
-        :class="screenshotKeyStatus.state"
-      >
-        <span class="status-dot"></span>{{ screenshotKeyStatus.message }}
-      </div>
-    </section>
-
     <p v-show="activeTab === 'shortcuts'" class="hint">CommandOrControl 在 Windows/Linux 上为 Ctrl，在 macOS 上为 ⌘。</p>
 
-    <section v-show="activeTab === 'about'" class="card about-card">
-      <div class="about-header">
-        <div class="about-mark" aria-hidden="true">S</div>
+    <section v-show="activeTab === 'about'" class="about">
+      <header class="about-hero">
+        <div class="about-mark" aria-hidden="true"><Box :size="30" stroke-width="1.8" /></div>
         <div class="about-copy">
-          <div class="about-name">sbox</div>
-          <div class="about-version">版本 {{ appVersion || '读取中…' }}</div>
+          <h2>sbox</h2>
+          <p>本地桌面工具箱</p>
         </div>
-      </div>
+        <span class="version-badge">v{{ appVersion || '…' }}</span>
+        <p class="about-description">集中提供编码、校验、图像处理、截图和系统辅助工具，让日常操作少一些重复步骤。</p>
+      </header>
 
-      <div class="row update-row">
-        <div class="row-text">
-          <div class="row-label">应用更新</div>
-          <div class="row-desc" :class="{ 'update-error': updateStatus === 'error' }">
-            {{ updateStatusText }}
+      <div class="about-grid">
+        <section class="about-panel" aria-labelledby="update-heading">
+          <div class="about-panel-icon update-icon" aria-hidden="true"><RefreshCw :size="19" stroke-width="1.8" /></div>
+          <div class="about-panel-copy">
+            <h3 id="update-heading">应用更新</h3>
+            <p :class="{ 'update-error': updateStatus === 'error' }">{{ updateStatusText }}</p>
           </div>
-        </div>
-        <button
-          type="button"
-          class="btn btn-outline update-button"
-          :disabled="updateStatus === 'checking' || updateStatus === 'downloading'"
-          @click="onCheckUpdate"
-        >
-          {{ updateStatus === 'checking' ? '检查中…' : '检查更新' }}
-        </button>
+          <button
+            type="button"
+            class="btn btn-outline about-action"
+            :disabled="updateStatus === 'checking' || updateStatus === 'downloading'"
+            @click="onCheckUpdate"
+          >{{ updateStatus === 'checking' ? '检查中…' : '检查更新' }}</button>
+        </section>
+
+        <section class="about-panel" aria-labelledby="github-heading">
+          <div class="about-panel-icon github-icon" aria-hidden="true"><Github :size="19" stroke-width="1.8" /></div>
+          <div class="about-panel-copy">
+            <h3 id="github-heading">GitHub 与使用说明</h3>
+            <p>查看源码、使用说明、更新记录或提交问题反馈。</p>
+          </div>
+          <button type="button" class="btn btn-outline about-action" @click="openGitHub">查看详情</button>
+        </section>
       </div>
+      <p v-if="aboutError" class="about-error" role="alert">{{ aboutError }}</p>
     </section>
   </div>
 </template>
@@ -376,27 +332,41 @@ onMounted(() => {
 
 .hint { font-size: 12px; color: var(--fg-muted); margin: 0; }
 
-.about-card { padding: 4px 16px; }
-.about-header {
-  display: flex; align-items: center; gap: 12px;
-  padding: 16px 0; border-bottom: 1px solid var(--border);
+.about { margin-top: 4px; }
+.about-hero {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  padding: 24px; border: 1px solid var(--border); border-radius: calc(var(--radius) + 2px);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 12%, var(--card)), var(--card) 56%);
 }
 .about-mark {
   display: grid; place-items: center;
-  width: 44px; height: 44px; flex: 0 0 auto;
-  border-radius: var(--radius); background: var(--primary); color: #fff;
-  font-size: 22px; font-weight: 700;
+  width: 54px; height: 54px; border-radius: 14px; background: var(--primary); color: #fff;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--primary) 28%, transparent);
 }
 .about-copy { min-width: 0; }
-.about-name { font-size: 17px; font-weight: 600; }
-.about-version { margin-top: 2px; color: var(--fg-muted); font-size: 12px; }
-.update-row { border-top: 0; }
-.update-button { flex: 0 0 auto; min-width: 96px; }
+.about-copy h2 { margin: 0; font-size: 22px; line-height: 1.2; }
+.about-copy p { margin: 4px 0 0; color: var(--fg-muted); font-size: 13px; }
+.version-badge { padding: 4px 8px; border: 1px solid var(--border); border-radius: 99px; background: var(--card); color: var(--fg-muted); font: 12px ui-monospace, monospace; }
+.about-description { grid-column: 1 / -1; margin: 5px 0 0; color: var(--fg-muted); font-size: 13px; }
+.about-grid { display: grid; gap: 12px; margin-top: 14px; }
+.about-panel { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.about-panel-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 9px; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, var(--card)); }
+.github-icon { color: var(--fg); background: var(--bg); }
+.about-panel-copy { min-width: 0; }
+.about-panel-copy h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.about-panel-copy p { margin: 4px 0 0; color: var(--fg-muted); font-size: 12px; }
+.about-action { flex: 0 0 auto; min-width: 96px; }
 .row-desc.update-error { color: var(--danger); }
+.about-panel-copy .update-error { color: var(--danger); }
+.about-error { margin: 0 0 16px; color: var(--danger); font-size: 12px; }
 
 @media (max-width: 560px) {
   .row { align-items: flex-start; }
   .update-row { flex-direction: column; }
   .update-button { width: 100%; }
+  .about-hero { grid-template-columns: auto minmax(0, 1fr); padding: 20px; }
+  .version-badge { justify-self: start; }
+  .about-panel { grid-template-columns: auto minmax(0, 1fr); }
+  .about-action { grid-column: 1 / -1; width: 100%; }
 }
 </style>
