@@ -177,6 +177,7 @@ pub fn run() {
             tools::screenshot::screenshot_capture,
             tools::screenshot::screenshot_latest,
             tools::screenshot::screenshot_latest_pixels,
+            tools::screenshot::screenshot_overlay_disable_animation,
             tools::screenshot::screenshot_save_selection,
             tools::ssh_keygen::ssh_key_generate,
             tools::translator::translator_close,

@@ -378,6 +378,47 @@ pub fn screenshot_capture(
     Ok(())
 }
 
+/// 关闭覆盖层窗口的系统入场/退场动画。
+///
+/// Windows 首次 show 一个窗口时，DWM 会播放「窗口打开」过渡（覆盖层表现为从小到大的缩放），
+/// 之后 hide/show 不再播放，所以只有第一次按快捷键能看到。DWMWA_TRANSITIONS_FORCEDISABLED
+/// 把这个窗口从 DWM 过渡动画里摘出去，覆盖层直接整屏出现。
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub fn screenshot_overlay_disable_animation(
+    app: tauri::AppHandle,
+    label: String,
+) -> Result<(), String> {
+    use tauri::Manager;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
+
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("窗口不存在：{label}"))?;
+    // 经 isize/指针转换重建 HWND，避免 tauri 依赖的 windows crate 版本与本 crate 不一致时类型冲突。
+    let hwnd = HWND(window.hwnd().map_err(|e| e.to_string())?.0 as _);
+    let disable: i32 = 1;
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_TRANSITIONS_FORCEDISABLED,
+            std::ptr::from_ref(&disable).cast(),
+            std::mem::size_of_val(&disable) as u32,
+        )
+    }
+    .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+pub fn screenshot_overlay_disable_animation(
+    _app: tauri::AppHandle,
+    _label: String,
+) -> Result<(), String> {
+    Ok(())
+}
+
 /// 覆盖层窗口读取最近一次捕获的元数据。
 #[tauri::command]
 pub fn screenshot_latest(state: tauri::State<CaptureState>) -> Option<CaptureMeta> {

@@ -76,6 +76,15 @@ async function makeOverlayIdle(win: Window): Promise<void> {
   await win.hide()
 }
 
+/** 关闭覆盖层的系统入场动画（Windows DWM 首次 show 会有从小到大的缩放过渡）。 */
+async function disableOverlayAnimation(): Promise<void> {
+  try {
+    await invoke('screenshot_overlay_disable_animation', { label: OVERLAY_LABEL })
+  } catch (error) {
+    console.warn('关闭截图覆盖层入场动画失败：', error)
+  }
+}
+
 /** 首次展示前预设整屏尺寸，避免默认 800×600 窗口被可见地放大。 */
 async function primeOverlayBounds(overlay: WebviewWindow): Promise<void> {
   try {
@@ -114,6 +123,8 @@ async function createOverlay(): Promise<WebviewWindow> {
       reject(new Error(`创建截图覆盖层失败：${event.payload}`))
     })
   })
+  // 原生窗口存在后立刻摘掉系统过渡动画，早于任何 show。
+  await disableOverlayAnimation()
   // 首次 show 前先给隐藏窗口一个真实的显示器尺寸。否则原生窗口会以默认尺寸创建，
   // 再在第一张截图时放大到整屏，Windows 上会出现明显的缩放入场效果。
   await primeOverlayBounds(overlay)
@@ -128,6 +139,7 @@ export async function ensureOverlay(): Promise<WebviewWindow> {
   const existing = await WebviewWindow.getByLabel(OVERLAY_LABEL)
   if (existing) {
     // 保持隐藏；真正的 show 由 CAPTURE_READY 回调在定位并绘制画面后执行。
+    await disableOverlayAnimation()
     await primeOverlayBounds(existing)
     await makeOverlayIdle(existing)
     return existing
