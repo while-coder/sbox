@@ -15,6 +15,14 @@ export const NATIVE_TOOLS: ToolDef[] = [
     component: () => import('./tools/file-locks/FileLocksView.vue'),
   },
   {
+    key: 'env-vars',
+    label: '环境变量 / Hosts',
+    description: '查看和编辑 Windows 用户/系统环境变量（系统变量需管理员权限）与 hosts 文件，修改后自动广播生效',
+    category: 'devtool',
+    keywords: ['env', 'environment', 'variable', 'path', 'registry', 'hosts', '域名解析', '环境变量', '系统变量', '用户变量', '变量', '注册表'],
+    component: () => import('./tools/env-vars/EnvVarsView.vue'),
+  },
+  {
     key: 'screenshot',
     label: '截图',
     description: '全屏框选截图，保存 / 复制到剪贴板 / 识别二维码，支持全局快捷键',
@@ -49,7 +57,7 @@ export const NATIVE_TOOLS: ToolDef[] = [
   {
     key: 'xiaoai-login',
     label: '小爱登录',
-    description: '登录小米账号，导出 sbot channel.xiaoai 所需的 userId / passToken / loginDeviceId / deviceName',
+    description: '登录小米账号，导出 userId / passToken / loginDeviceId / deviceName',
     category: 'account',
     keywords: ['xiaoai', 'xiaomi', '小爱', '小米', 'login', 'cookie', '登录', 'passtoken'],
     component: () => import('./tools/xiaoai-login/XiaoaiLoginView.vue'),
@@ -57,7 +65,7 @@ export const NATIVE_TOOLS: ToolDef[] = [
   {
     key: 'gdrive-login',
     label: 'Google Drive 登录',
-    description: '浏览器 OAuth 登录，导出 sbot wiki.gdrive 所需的 clientId / clientSecret / refreshToken',
+    description: '浏览器 OAuth 登录，导出 Google auth 格式的授权文件（clientId / clientSecret / refreshToken）',
     category: 'account',
     keywords: ['google', 'drive', 'gdrive', 'oauth', 'refresh token', '登录', '谷歌', '云盘', '授权'],
     component: () => import('./tools/gdrive-login/GdriveLoginView.vue'),

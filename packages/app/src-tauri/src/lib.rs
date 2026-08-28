@@ -127,6 +127,15 @@ fn logging_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 提权子进程模式：父进程以 runas 拉起本程序执行单次系统级写入，完成后立即退出。
+    // 必须在单实例插件初始化之前处理，避免子进程唤醒已运行的主窗口。
+    let mut args = std::env::args();
+    if args.nth(1).as_deref() == Some("--apply-env") {
+        let op_file = args.next().unwrap_or_default();
+        let result_file = args.next().unwrap_or_default();
+        std::process::exit(tools::env_vars::apply_elevated_cli(&op_file, &result_file));
+    }
+
     let mut builder = tauri::Builder::default();
 
     // 单实例插件必须第一个注册。第二次启动会自行退出，并唤醒已运行的主窗口。
@@ -167,6 +176,11 @@ pub fn run() {
             tools::xiaoai_login::xiaoai_list_devices,
             tools::gdrive_login::gdrive_oauth_login,
             tools::external::open_external_url,
+            tools::env_vars::env_vars_list,
+            tools::env_vars::env_vars_set,
+            tools::env_vars::env_vars_delete,
+            tools::hosts::hosts_read,
+            tools::hosts::hosts_write,
             tools::file_locks::file_locks_check,
             tools::keystore_gen::keystore_check_java,
             tools::keystore_gen::keystore_generate,

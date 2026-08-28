@@ -29,6 +29,7 @@ base64 = "0.22"
 rand = "0.8"
 ssh-key = { version = "0.6.7", default-features = false, features = ["std", "ed25519", "rsa", "encryption", "getrandom"] }
 urlencoding = "2"
+sha2 = "0.10"
 open = "5"
 log = "0.4"
 tauri-plugin-log = "2"
@@ -37,7 +38,7 @@ xcap = "0.9.6"
 tauri-plugin-clipboard-manager = "2.3.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Security", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-foundation = { version = "0.3.2", features = ["NSProcessInfo"] }

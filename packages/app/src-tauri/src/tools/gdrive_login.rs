@@ -1,11 +1,32 @@
 use crate::common::random::random_device_id;
+use base64::Engine;
 use serde::Serialize;
+use sha2::Digest;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, Instant};
 
-const SCOPE: &str = "https://www.googleapis.com/auth/drive.readonly";
+/// 内置 OAuth 桌面客户端。Desktop app 类型的 client secret 本身不是机密
+/// （安全靠用户自己在浏览器登录自己的 Google 账号，refresh token 按用户隔离），
+/// 可随程序分发一份共用；界面里填写自定义客户端时可覆盖这两个值。
+///
+/// 凭证不入库：构建时通过 `GDRIVE_BUILTIN_CLIENT_ID` / `GDRIVE_BUILTIN_CLIENT_SECRET`
+/// 注入——本地开发写在 src-tauri/.env.local（已 gitignore，见 build.rs），
+/// CI/发布直接设置同名环境变量。未注入时为空，此时须在界面里填写自定义客户端。
+const BUILTIN_CLIENT_ID: &str = match option_env!("GDRIVE_BUILTIN_CLIENT_ID") {
+    Some(v) => v,
+    None => "",
+};
+const BUILTIN_CLIENT_SECRET: &str = match option_env!("GDRIVE_BUILTIN_CLIENT_SECRET") {
+    Some(v) => v,
+    None => "",
+};
+
+const SCOPE_DRIVE: &str = "https://www.googleapis.com/auth/drive";
+const SCOPE_ANDROIDPUBLISHER: &str = "https://www.googleapis.com/auth/androidpublisher";
+/// 允许请求的 scope 白名单，防止拼出意外的授权范围。
+const ALLOWED_SCOPES: &[&str] = &[SCOPE_DRIVE, SCOPE_ANDROIDPUBLISHER];
 const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 
@@ -35,12 +56,36 @@ pub struct GdriveCreds {
 pub async fn gdrive_oauth_login(
     client_id: String,
     client_secret: String,
+    scopes: Option<Vec<String>>,
 ) -> Result<GdriveCreds, String> {
     let client_id = client_id.trim().to_string();
     let client_secret = client_secret.trim().to_string();
+    // 留空时回退到内置客户端；两者皆无才报错。
+    let client_id = if client_id.is_empty() { BUILTIN_CLIENT_ID.to_string() } else { client_id };
+    let client_secret = if client_secret.is_empty() { BUILTIN_CLIENT_SECRET.to_string() } else { client_secret };
     if client_id.is_empty() || client_secret.is_empty() {
-        return Err("请先填写 Client ID 与 Client Secret".into());
+        return Err("请填写 Client ID 与 Client Secret".into());
     }
+    // 校验 scope 白名单并去重；未指定时默认 Drive 完整读写。
+    let mut allowed: Vec<&str> = Vec::new();
+    for requested in scopes.unwrap_or_default() {
+        let requested = requested.trim();
+        if requested.is_empty() {
+            continue;
+        }
+        match ALLOWED_SCOPES.iter().find(|s| **s == requested) {
+            Some(s) => {
+                if !allowed.contains(s) {
+                    allowed.push(s);
+                }
+            }
+            None => return Err(format!("不支持的授权范围: {requested}")),
+        }
+    }
+    if allowed.is_empty() {
+        allowed.push(SCOPE_DRIVE);
+    }
+    let scope = allowed.join(" ");
 
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("绑定本地端口失败: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -49,13 +94,16 @@ pub async fn gdrive_oauth_login(
         .map_err(|e| e.to_string())?;
     let redirect_uri = format!("http://127.0.0.1:{port}");
     let state = random_device_id();
+    // PKCE S256：授权码只对本客户端 + 本 verifier 有效，防回环端口上的授权码拦截。
+    let (code_verifier, code_challenge) = generate_pkce();
 
     let auth_url = format!(
-        "{AUTH_ENDPOINT}?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt=consent&state={}",
+        "{AUTH_ENDPOINT}?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt=consent&state={}&code_challenge={}&code_challenge_method=S256",
         urlencoding::encode(&client_id),
         urlencoding::encode(&redirect_uri),
-        urlencoding::encode(SCOPE),
+        urlencoding::encode(&scope),
         urlencoding::encode(&state),
+        urlencoding::encode(&code_challenge),
     );
 
     open::that(&auth_url).map_err(|e| format!("打开系统浏览器失败: {e}"))?;
@@ -72,6 +120,7 @@ pub async fn gdrive_oauth_login(
         ("client_secret", client_secret.as_str()),
         ("redirect_uri", redirect_uri.as_str()),
         ("grant_type", "authorization_code"),
+        ("code_verifier", code_verifier.as_str()),
     ];
     let resp = client
         .post(TOKEN_ENDPOINT)
@@ -109,19 +158,34 @@ pub async fn gdrive_oauth_login(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let scope = body
+    let granted_scope = body
         .get("scope")
         .and_then(|v| v.as_str())
-        .unwrap_or(SCOPE)
+        .unwrap_or(&scope)
         .to_string();
 
     Ok(GdriveCreds {
         client_id,
         client_secret,
         refresh_token,
-        scope,
+        scope: granted_scope,
         access_token,
     })
+}
+
+/// 生成 PKCE 的 (code_verifier, code_challenge)：
+/// verifier 为 96 个非保留字符；challenge = BASE64URL(SHA256(verifier))，无填充。
+fn generate_pkce() -> (String, String) {
+    use rand::Rng;
+
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+    let mut rng = rand::thread_rng();
+    let verifier: String = (0..96)
+        .map(|_| CHARS[rng.gen_range(0..CHARS.len())] as char)
+        .collect();
+    let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(sha2::Sha256::digest(verifier.as_bytes()));
+    (verifier, challenge)
 }
 
 /// 非阻塞 accept 轮询，等待 Google 的授权回调；500ms 间隔，5 分钟超时。
