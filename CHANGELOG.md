@@ -1,5 +1,17 @@
 # sbox
 
+## 0.0.5
+
+### 新增
+
+- 新增环境变量 / Hosts 工具，可查看和编辑 Windows 用户与系统环境变量（系统变量需管理员权限）及 hosts 文件，修改后自动广播生效。
+- Google Drive 登录支持按需勾选授权范围，可在 Google Drive 与 Google Play 开发者权限间选择。
+
+### 优化
+
+- Google Drive 登录改用系统内置的公共 OAuth 客户端，无需再自行申请 Client ID / Secret，自定义客户端改为可选项。
+- Google Drive 登录结果可保存为 Google auth 标准格式的授权文件，直接作为 `--auth` 参数使用。
+
 ## 0.0.4
 
 ### 新增
