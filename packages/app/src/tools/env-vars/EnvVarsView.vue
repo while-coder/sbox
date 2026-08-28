@@ -23,7 +23,6 @@ interface EditDialogState {
   originalName: string
   name: string
   value: string
-  typeName: 'REG_SZ' | 'REG_EXPAND_SZ'
   originalTypeName: 'REG_SZ' | 'REG_EXPAND_SZ'
   /** PATH 列表编辑器的条目；null 表示非列表模式 */
   pathEntries: string[] | null
@@ -143,9 +142,12 @@ const nameConflict = computed(() => {
   return existing ? existing.name : null
 })
 
-const typeDowngrade = computed(() => {
+/** 保存时的注册表类型：编辑保持原类型；新建按值里是否含 %VAR% 引用自动判断。 */
+const effectiveTypeName = computed<'REG_SZ' | 'REG_EXPAND_SZ'>(() => {
   const state = dialog.value
-  return !!state && state.originalTypeName === 'REG_EXPAND_SZ' && state.typeName === 'REG_SZ'
+  if (!state) return 'REG_SZ'
+  if (state.mode === 'edit') return state.originalTypeName
+  return /%[A-Za-z_][\w() .\-]*%/.test(effectiveValue.value) ? 'REG_EXPAND_SZ' : 'REG_SZ'
 })
 
 async function load(target: EnvVarScope, options: { silent?: boolean } = {}) {
@@ -188,6 +190,21 @@ function isCritical(name: string) {
 
 function canExpand(entry: EnvVarEntry) {
   return entry.rawValue.length > EXPAND_THRESHOLD || entry.rawValue.includes('\n')
+}
+
+/** PATH 这类分号分隔的列表变量，按条展示比一整段原文可读。 */
+function isListVar(entry: EnvVarEntry) {
+  return entry.name.trim().toUpperCase() === 'PATH' && entry.rawValue.includes(';')
+}
+
+function listEntries(entry: EnvVarEntry) {
+  return entry.rawValue.split(';')
+}
+
+/** 展开后值有变化才展示；长文本收起时不展示，避免两段大段重复文本。 */
+function showExpandedHelper(entry: EnvVarEntry) {
+  if (!entry.expandedValue || entry.expandedValue === entry.rawValue) return false
+  return !canExpand(entry) || expanded.value.has(entry.name)
 }
 
 function toggleExpand(entry: EnvVarEntry) {
@@ -233,7 +250,6 @@ function openCreate() {
     originalName: '',
     name: '',
     value: '',
-    typeName: 'REG_SZ',
     originalTypeName: 'REG_SZ',
     pathEntries: null,
     useListEditor: false,
@@ -249,7 +265,6 @@ function openEdit(entry: EnvVarEntry) {
     originalName: entry.name,
     name: entry.name,
     value: entry.rawValue,
-    typeName: entry.typeName,
     originalTypeName: entry.typeName,
     pathEntries: isPath ? entry.rawValue.split(';') : null,
     useListEditor: isPath,
@@ -268,7 +283,7 @@ async function saveDialog() {
   dialogError.value = ''
   try {
     const name = state.name.trim()
-    await setEnvVar(tab.value as EnvVarScope, name, effectiveValue.value, state.typeName)
+    await setEnvVar(tab.value as EnvVarScope, name, effectiveValue.value, effectiveTypeName.value)
     dialog.value = null
     showStatus(`已保存 ${name}，新启动的程序会立即生效`)
     await load(tab.value as EnvVarScope, { silent: true })
@@ -431,8 +446,14 @@ onUnmounted(() => {
                 <span class="badge" :class="{ expand: entry.typeName === 'REG_EXPAND_SZ' }">{{ typeLabel(entry.typeName) }}</span>
               </div>
               <div class="var-value">
-                <p class="value-text" :class="{ clamped: canExpand(entry) && !expanded.has(entry.name) }">{{ entry.rawValue || '（空）' }}</p>
-                <p v-if="entry.expandedValue && entry.expandedValue !== entry.rawValue" class="helper">
+                <template v-if="isListVar(entry)">
+                  <p class="helper list-count">共 {{ listEntries(entry).length }} 条路径</p>
+                  <ul class="value-text path-items" :class="{ clamped: canExpand(entry) && !expanded.has(entry.name) }">
+                    <li v-for="(item, index) in listEntries(entry)" :key="index">{{ item || '（空）' }}</li>
+                  </ul>
+                </template>
+                <p v-else class="value-text" :class="{ clamped: canExpand(entry) && !expanded.has(entry.name) }">{{ entry.rawValue || '（空）' }}</p>
+                <p v-if="showExpandedHelper(entry)" class="helper">
                   含 %VAR% 引用，展开后：{{ entry.expandedValue }}
                 </p>
                 <button
@@ -477,13 +498,12 @@ onUnmounted(() => {
         >
         <p v-if="nameConflict" class="warning">已存在同名变量（Windows 变量名不区分大小写），保存将覆盖 {{ nameConflict }}。</p>
 
-        <label for="env-var-type">类型</label>
-        <select id="env-var-type" v-model="dialog.typeName" class="input">
-          <option value="REG_SZ">文本（REG_SZ）</option>
-          <option value="REG_EXPAND_SZ">展开型（REG_EXPAND_SZ）</option>
-        </select>
-        <p v-if="typeDowngrade" class="error">当前类型为展开型，改为文本将丢失 %VAR% 引用的展开语义，程序会读到原样的 %…% 字符串。</p>
-        <p v-else-if="dialog.typeName === 'REG_EXPAND_SZ'" class="helper">值中的 %VAR% 引用会在程序读取时自动展开为实际路径。</p>
+        <p v-if="dialog.mode === 'edit' && dialog.originalTypeName === 'REG_EXPAND_SZ'" class="helper">
+          该变量为展开型（REG_EXPAND_SZ），值中的 %VAR% 引用会在程序读取时自动展开，保存时保持该类型。
+        </p>
+        <p v-else-if="effectiveTypeName === 'REG_EXPAND_SZ'" class="helper">
+          值中含 %VAR% 引用，将以展开型（REG_EXPAND_SZ）保存，程序读取时自动展开为实际路径。
+        </p>
 
         <label for="env-var-value">值</label>
         <template v-if="showListEditor">
@@ -589,6 +609,10 @@ onUnmounted(() => {
 .var-value { min-width: 0; }
 .value-text { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .value-text.clamped { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.list-count { margin-top: 0; }
+.path-items { margin: 0; padding: 0; list-style: none; }
+.path-items li { position: relative; padding: 1px 0 1px 14px; overflow-wrap: anywhere; }
+.path-items li::before { content: ''; position: absolute; left: 2px; top: 0.75em; width: 5px; height: 5px; border-radius: 50%; background: var(--fg-muted); opacity: 0.5; }
 .link-btn { margin-top: 2px; padding: 0; border: none; background: transparent; color: var(--primary); font-size: 13px; cursor: pointer; }
 .var-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
 .copy-btn { min-height: 30px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 5px; background: transparent; color: var(--fg); font-size: 13px; cursor: pointer; }
