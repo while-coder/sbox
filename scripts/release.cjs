@@ -1,7 +1,22 @@
 #!/usr/bin/env node
+/**
+ * 一键发版：打印摘要 → 二次确认 → bump 版本 → commit → (tag 已存在时确认清理) → 打 tag → 推送。
+ * 推送触发 "Release" workflow，由 GitHub Actions 完成构建与发布。
+ *
+ * 确认规则（参考 wmdebugger/scripts/release.js）：
+ *   - tag 已存在（本地或远程）：y/N 确认后删除旧 tag 再重打并推送
+ *   - tag 不存在：回车确认发版，Ctrl+C 取消
+ *
+ * 用法：
+ *   npm run release                # 用当前版本，tag & push
+ *   npm run release patch          # bump patch
+ *   npm run release minor|major
+ *   npm run release 0.2.0          # 指定版本号
+ */
 const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const readline = require('readline');
 
 const PKG_JSON = 'package.json';
 const TAG_PREFIX = 'v';
@@ -23,6 +38,10 @@ function usage(msg) {
 function run(cmd, opts = {}) {
   console.log(`> ${cmd}`);
   return execSync(cmd, { stdio: 'inherit', ...opts });
+}
+
+function sh(cmd) {
+  return execSync(cmd, { encoding: 'utf8' }).trim();
 }
 
 function commandSucceeds(cmd) {
@@ -50,7 +69,7 @@ function bumpVersion(version, type) {
 }
 
 function isWorkingTreeClean() {
-  return execSync('git status --porcelain', { encoding: 'utf8' }).trim().length === 0;
+  return sh('git status --porcelain').length === 0;
 }
 
 function tagExists(tag) {
@@ -108,36 +127,91 @@ function main() {
 
   const tag = `${TAG_PREFIX}${nextVersion}`;
 
-  console.log(`current : ${currentVersion}`);
-  console.log(`next    : ${nextVersion}`);
-  console.log(`tag     : ${tag}`);
-  console.log('');
+  // ---------- 前置检查（任何破坏性操作之前） ----------
+  let status;
+  try {
+    status = sh('git status --porcelain');
+  } catch {
+    console.error('✗ 不在 git 仓库中');
+    process.exit(1);
+  }
+  if (versionChanged && status) {
+    console.error('✗ 工作区有未提交改动，请先 commit 或 stash：');
+    console.error(status);
+    process.exit(1);
+  }
+
+  const branch = sh('git rev-parse --abbrev-ref HEAD');
+  if (branch === 'HEAD') {
+    console.error('✗ 当前处于 detached HEAD，请先 checkout 到分支');
+    process.exit(1);
+  }
+
+  // ---------- 打印发版摘要 ----------
+  console.log('────────────────────────────────────────');
+  console.log(`  当前版本:  ${currentVersion}`);
+  console.log(`  发布版本:  ${tag}`);
+  console.log(`  分支:      ${branch}`);
+  console.log('────────────────────────────────────────');
 
   if (!changelogHasVersion(path.join(root, CHANGELOG), nextVersion)) {
     console.warn(`warning: ${CHANGELOG} has no "## ${nextVersion}" section — release notes will fall back to "Release ${nextVersion}"`);
   }
 
-  if (versionChanged) {
-    if (!isWorkingTreeClean()) {
-      console.error('error: working tree not clean — commit or stash before releasing');
-      process.exit(1);
+  // ---------- tag 状态检测：确认前说明将删除已有还是新建 ----------
+  const tagLocal = tagExists(tag);
+  const tagRemote = remoteTagExists(tag);
+  const tagWhere = [
+    tagLocal ? '本地' : null,
+    tagRemote ? '远程' : null,
+  ].filter(Boolean).join('、');
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (prompt) => new Promise((resolve) => rl.question(prompt, resolve));
+
+  (async () => {
+    let needClean = false;
+    if (tagLocal || tagRemote) {
+      console.log(`  tag 状态:  已存在（${tagWhere}）→ 将删除后重打`);
+      const ans = await ask(`⚠ tag ${tag} 已存在（${tagWhere}）。删除后重新打 tag 并推送？[y/N] `);
+      if (ans.trim().toLowerCase() !== 'y') {
+        console.log('✗ 已取消，未删除任何 tag，发版中止');
+        process.exit(1);
+      }
+      needClean = true;
+    } else {
+      console.log('  tag 状态:  新建');
+      await ask('回车确认发版，Ctrl+C 取消...');
     }
 
-    pkg.version = nextVersion;
-    writeJson(pkgPath, pkg);
+    // ---------- 确认通过后才执行写操作 ----------
+    if (versionChanged) {
+      if (!isWorkingTreeClean()) {
+        console.error('error: working tree not clean — commit or stash before releasing');
+        process.exit(1);
+      }
 
-    run(`git add "${pkgRel}"`);
-    run(`git commit -m "chore: release v${nextVersion}"`);
-  }
+      pkg.version = nextVersion;
+      writeJson(pkgPath, pkg);
 
-  deleteExistingTag(tag);
+      run(`git add "${pkgRel}"`);
+      run(`git commit -m "chore: release v${nextVersion}"`);
+    }
 
-  run(`git tag -a "${tag}" -m "sbox v${nextVersion}"`);
-  run('git push');
-  run(`git push origin "${tag}"`);
+    if (needClean) {
+      deleteExistingTag(tag);
+      console.log(`✓ 已清理旧 tag ${tag}`);
+    }
 
-  console.log('');
-  console.log(`✓ pushed tag ${tag} — workflow "${WORKFLOW_NAME}" triggered`);
+    run(`git tag -a "${tag}" -m "sbox v${nextVersion}"`);
+    run('git push');
+    run(`git push origin "${tag}"`);
+
+    console.log('');
+    console.log(`✓ pushed tag ${tag} — workflow "${WORKFLOW_NAME}" triggered`);
+    rl.close();
+    process.exit(0);
+  })();
 }
 
 main();
