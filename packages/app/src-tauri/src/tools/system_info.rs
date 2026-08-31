@@ -1098,8 +1098,7 @@ mod macos_impl {
         let mut device = super::sysinfo_device();
         let value = run_profiler("SPHardwareDataType");
         if let Some(hardware) = value
-            .as_ref()
-            .and_then(|value| value.get("SPHardwareDataType"))
+            .get("SPHardwareDataType")
             .and_then(Value::as_array)
             .and_then(|items| items.first())
         {
@@ -1600,7 +1599,7 @@ mod linux_impl {
             "Charging" => "充电中".into(),
             "Full" => "已充满".into(),
             "Not charging" => "已接电源".into(),
-            other => other,
+            other => other.to_string(),
         });
         (charge_percent.is_some() || state.is_some()).then(|| BatteryInfo {
             charge_percent,
