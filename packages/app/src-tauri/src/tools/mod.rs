@@ -8,5 +8,6 @@ pub mod file_locks;
 pub mod save_file;
 pub mod screenshot;
 pub mod ssh_keygen;
+pub mod system_info;
 pub mod translator;
 pub mod xiaoai_login;

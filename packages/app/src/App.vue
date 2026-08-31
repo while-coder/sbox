@@ -9,7 +9,7 @@ import {
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { UpdaterDialog } from '@while-coder/tauri-updater-vue'
-import { toolsByCategory } from '@sbox/tools-core'
+import { toolNavGroups } from '@sbox/tools-core'
 import { ALL_TOOLS } from './registry'
 import { loadSettings } from './settings'
 import { setupCloseToTray, applyBossKey, watchBossKey, refreshAutostart } from './system'
@@ -19,7 +19,7 @@ const route = useRoute()
 const router = useRouter()
 const sidebarOpen = ref(false)
 const isOverlay = computed(() => route.path === '/screenshot-overlay')
-const toolGroups = computed(() => toolsByCategory(ALL_TOOLS))
+const toolGroups = computed(() => toolNavGroups(ALL_TOOLS))
 let stopShortcutWatch: WatchStopHandle | undefined
 let unlistenOpenSettings: (() => void) | undefined
 

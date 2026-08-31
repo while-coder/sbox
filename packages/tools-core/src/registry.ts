@@ -14,6 +14,8 @@ export interface ToolDef {
   description: string
   /** 所属分类，决定首页分组 */
   category: CategoryKey
+  /** 置顶显示：首页在所有分类之前单独成组 */
+  pinned?: boolean
   /** 搜索关键词（label/description 之外的别名、英文名等） */
   keywords: string[]
   /** 懒加载组件 */
@@ -111,6 +113,14 @@ export function toolsByCategory(tools: ToolDef[]): { key: CategoryKey; label: st
   return CATEGORIES
     .map(c => ({ ...c, tools: tools.filter(t => t.category === c.key) }))
     .filter(g => g.tools.length > 0)
+}
+
+/** 导航分组：pinned 工具（如本机信息）单独成组置顶，其余按分类分组。首页与菜单共用。 */
+export function toolNavGroups(tools: ToolDef[]): { key: string; label: string; tools: ToolDef[] }[] {
+  const pinned = tools.filter(t => t.pinned)
+  const grouped = toolsByCategory(tools.filter(t => !t.pinned))
+  if (pinned.length) grouped.unshift({ key: 'pinned', label: '常用', tools: pinned })
+  return grouped
 }
 
 /** 模糊搜索：匹配 label / description / keywords（大小写不敏感）。 */

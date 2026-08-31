@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { toolsByCategory, searchTools, CATEGORIES, type ToolDef } from '../registry'
+import { toolNavGroups, searchTools, CATEGORIES, type ToolDef } from '../registry'
 
 /** 由宿主传入完整工具列表（web 为 9 个，桌面为 15 个）。 */
 const props = defineProps<{ tools: ToolDef[] }>()
@@ -10,7 +10,8 @@ const router = useRouter()
 const query = ref('')
 const searchEl = ref<HTMLInputElement | null>(null)
 
-const groups = computed(() => toolsByCategory(props.tools))
+// pinned 工具（如本机信息）单独成组置顶，其余按分类分组
+const groups = computed(() => toolNavGroups(props.tools))
 const categoryLabel = (key: string) => CATEGORIES.find(c => c.key === key)?.label ?? ''
 
 const filtered = computed<ToolDef[]>(() => searchTools(props.tools, query.value))

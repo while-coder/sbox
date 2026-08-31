@@ -1,6 +1,6 @@
 /** @sbox/tools-core 统一出口。 */
 export type { ToolDef, CategoryKey } from './registry'
-export { CATEGORIES, WEB_TOOLS, toolsByCategory, searchTools } from './registry'
+export { CATEGORIES, WEB_TOOLS, toolsByCategory, toolNavGroups, searchTools } from './registry'
 
 export type { Platform } from './platform'
 export { getPlatform, setPlatform, webPlatform } from './platform'

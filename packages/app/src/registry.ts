@@ -7,6 +7,15 @@ import { WEB_TOOLS, type ToolDef } from '@sbox/tools-core'
 /** 仅桌面（Tauri）可用的工具。 */
 export const NATIVE_TOOLS: ToolDef[] = [
   {
+    key: 'system-info',
+    label: '本机信息',
+    description: '查看操作系统版本、主板 BIOS、CPU / 内存 / 显卡规格、磁盘与 IP 地址等本机软硬件信息',
+    category: 'account',
+    pinned: true,
+    keywords: ['system', 'info', 'hardware', 'cpu', 'gpu', 'memory', 'disk', 'ip', 'bios', 'os', 'version', '设备', '系统', '版本', '主板', '显卡', '内存', '硬盘', '存储', '地址', '网络', '配置', '电脑信息'],
+    component: () => import('./tools/system-info/SystemInfoView.vue'),
+  },
+  {
     key: 'file-locks',
     label: '文件占用检查',
     description: '检查文件或文件夹被哪些 Windows 进程占用，便于处理删除、重命名失败',
