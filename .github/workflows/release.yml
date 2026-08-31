@@ -51,10 +51,6 @@ jobs:
       tag-name: ${{ needs.check.outputs.tag }}
       release-name: sbox v${{ needs.check.outputs.version }}
       release-body: ${{ needs.check.outputs.notes }}
-      # 构建期注入到二进制的内置 Google OAuth 凭证（见 src-tauri/build.rs）
-      build-env: |
-        GDRIVE_BUILTIN_CLIENT_ID=${{ secrets.GDRIVE_BUILTIN_CLIENT_ID }}
-        GDRIVE_BUILTIN_CLIENT_SECRET=${{ secrets.GDRIVE_BUILTIN_CLIENT_SECRET }}
     secrets: inherit
 
   publish-manifest:
