@@ -38,6 +38,34 @@ export interface RectMark {
   color: number[]
 }
 
+/** 自由涂抹马赛克笔迹，点列在选区裁剪坐标系内（原图像素）。 */
+export interface MosaicMark {
+  points: Array<[number, number]>
+  lineWidth: number
+  /** 色块边长（原图像素） */
+  block: number
+}
+
+/** 自由画笔笔迹，点列在选区裁剪坐标系内（原图像素）。 */
+export interface BrushMark {
+  points: Array<[number, number]>
+  lineWidth: number
+  color: number[]
+}
+
+/** 覆盖层提交的全部标注，Rust 端按马赛克 → 画笔 → 描边矩形的顺序合成。 */
+export interface Annotation {
+  rectMarks: RectMark[]
+  mosaics: MosaicMark[]
+  brushStrokes: BrushMark[]
+}
+
+export const EMPTY_ANNOTATION: Annotation = {
+  rectMarks: [],
+  mosaics: [],
+  brushStrokes: [],
+}
+
 const OVERLAY_LABEL = 'screenshot-overlay'
 const HIDE_CAPTURE_SETTLE_MS = 280
 let overlayCreation: Promise<WebviewWindow> | null = null
@@ -54,14 +82,21 @@ export function getLatestCapturePixels(): Promise<CapturePixels> {
   return invoke<CapturePixels>('screenshot_latest_pixels')
 }
 
-/** 按原图裁剪选区并合成矩形标记，返回 RGBA 像素。 */
-export function cropSelectionPixels(selection: SelectionRect, marks: RectMark[] = []): Promise<CapturePixels> {
-  return invoke<CapturePixels>('screenshot_crop_pixels', { selection, marks })
+/** 按原图裁剪选区并合成标注，返回 RGBA 像素。 */
+export function cropSelectionPixels(
+  selection: SelectionRect,
+  annotation: Annotation = EMPTY_ANNOTATION,
+): Promise<CapturePixels> {
+  return invoke<CapturePixels>('screenshot_crop_pixels', { selection, annotation })
 }
 
-/** 按原图裁剪选区、合成矩形标记并保存为 PNG。 */
-export function saveSelection(path: string, selection: SelectionRect, marks: RectMark[] = []): Promise<void> {
-  return invoke('screenshot_save_selection', { path, selection, marks })
+/** 按原图裁剪选区、合成标注并保存为 PNG。 */
+export function saveSelection(
+  path: string,
+  selection: SelectionRect,
+  annotation: Annotation = EMPTY_ANNOTATION,
+): Promise<void> {
+  return invoke('screenshot_save_selection', { path, selection, annotation })
 }
 
 /** 清理最近一次截图，释放 Rust 端原图缓存。 */

@@ -71,6 +71,37 @@ pub struct RectMark {
     pub color: [u8; 4],
 }
 
+/// 自由涂抹马赛克笔迹，点列在选区裁剪坐标系内（原图像素）。
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MosaicMark {
+    pub points: Vec<[u32; 2]>,
+    pub line_width: u32,
+    /// 色块边长（原图像素）
+    pub block: u32,
+}
+
+/// 自由画笔笔迹，点列在选区裁剪坐标系内（原图像素）。
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrushMark {
+    pub points: Vec<[u32; 2]>,
+    pub line_width: u32,
+    pub color: [u8; 4],
+}
+
+/// 覆盖层提交的全部标注，按马赛克 → 画笔 → 描边矩形的顺序合成（描边在最上层）。
+#[derive(Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Annotation {
+    #[serde(default)]
+    pub rect_marks: Vec<RectMark>,
+    #[serde(default)]
+    pub mosaics: Vec<MosaicMark>,
+    #[serde(default)]
+    pub brush_strokes: Vec<BrushMark>,
+}
+
 fn preview_size(width: u32, height: u32) -> (u32, u32) {
     let max_edge = width.max(height);
     if max_edge <= PREVIEW_MAX_EDGE {
@@ -218,6 +249,175 @@ fn draw_rect_marks(rgba: &mut [u8], width: u32, height: u32, marks: &[RectMark])
             bottom,
             mark.color,
         );
+    }
+}
+
+/// 取以 (bx, by) 为起点、block × block 的块内所有像素的平均色（从 source 读取）。
+fn mosaic_block_color(
+    source: &[u8],
+    image_width: u32,
+    image_height: u32,
+    bx: u32,
+    by: u32,
+    block: u32,
+) -> [u8; 4] {
+    let left = bx.saturating_mul(block).min(image_width);
+    let top = by.saturating_mul(block).min(image_height);
+    let right = bx.saturating_mul(block).saturating_add(block).min(image_width);
+    let bottom = by.saturating_mul(block).saturating_add(block).min(image_height);
+    let mut sum = [0u64; 4];
+    let mut count = 0u64;
+    for y in top..bottom {
+        for x in left..right {
+            let offset = (y as usize * image_width as usize + x as usize) * 4;
+            for (channel, value) in sum.iter_mut().enumerate() {
+                *value += u64::from(source[offset + channel]);
+            }
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return [0, 0, 0, 255];
+    }
+    sum.map(|value| (value / count) as u8)
+}
+
+/// 在圆内逐像素回填其所在色块的平均色，网格锚定在图像原点，
+/// 多条笔迹拼出的马赛克块彼此对齐。
+#[allow(clippy::too_many_arguments)]
+fn fill_mosaic_circle(
+    pixels: &mut [u8],
+    source: &[u8],
+    image_width: u32,
+    image_height: u32,
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    block: u32,
+    cache: &mut std::collections::HashMap<(u32, u32), [u8; 4]>,
+) {
+    if radius <= 0.0 || image_width == 0 || image_height == 0 {
+        return;
+    }
+    let left = ((cx - radius).floor() as i32).clamp(0, image_width as i32 - 1);
+    let right = ((cx + radius).ceil() as i32).clamp(0, image_width as i32 - 1);
+    let top = ((cy - radius).floor() as i32).clamp(0, image_height as i32 - 1);
+    let bottom = ((cy + radius).ceil() as i32).clamp(0, image_height as i32 - 1);
+    let radius_sq = radius * radius;
+    for y in top..=bottom {
+        for x in left..=right {
+            let dx = x as f32 + 0.5 - cx;
+            let dy = y as f32 + 0.5 - cy;
+            if dx * dx + dy * dy > radius_sq {
+                continue;
+            }
+            let key = (x as u32 / block, y as u32 / block);
+            let color = *cache.entry(key).or_insert_with(|| {
+                mosaic_block_color(source, image_width, image_height, key.0, key.1, block)
+            });
+            let offset = (y as usize * image_width as usize + x as usize) * 4;
+            pixels[offset..offset + 4].copy_from_slice(&color);
+        }
+    }
+}
+
+/// 沿点列逐段插值，把涂抹经过的区域按 block 网格像素化。
+/// 色块平均值从 source（打码前的原图）读取，避免已打码像素污染相邻块。
+fn draw_mosaic_stroke(
+    pixels: &mut [u8],
+    source: &[u8],
+    image_width: u32,
+    image_height: u32,
+    stroke: &MosaicMark,
+) {
+    if stroke.points.is_empty() || image_width == 0 || image_height == 0 {
+        return;
+    }
+    let block = stroke.block.max(1);
+    let radius = stroke.line_width.max(1) as f32 / 2.0;
+    let mut cache: std::collections::HashMap<(u32, u32), [u8; 4]> = std::collections::HashMap::new();
+    let mut stamp = |cx: f32, cy: f32| {
+        fill_mosaic_circle(
+            pixels,
+            source,
+            image_width,
+            image_height,
+            cx,
+            cy,
+            radius,
+            block,
+            &mut cache,
+        );
+    };
+    let [mut px, mut py] = stroke.points[0];
+    stamp(px as f32, py as f32);
+    for point in &stroke.points[1..] {
+        let (x0, y0) = (px as f32, py as f32);
+        let (x1, y1) = (point[0] as f32, point[1] as f32);
+        let distance = ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();
+        let steps = distance.ceil().max(1.0) as u32;
+        for step in 1..=steps {
+            let t = step as f32 / steps as f32;
+            stamp(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
+        }
+        px = point[0];
+        py = point[1];
+    }
+}
+
+fn fill_rgba_circle(
+    rgba: &mut [u8],
+    image_width: u32,
+    image_height: u32,
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    color: [u8; 4],
+) {
+    if radius <= 0.0 || image_width == 0 || image_height == 0 {
+        return;
+    }
+    let left = ((cx - radius).floor() as i32).clamp(0, image_width as i32 - 1);
+    let right = ((cx + radius).ceil() as i32).clamp(0, image_width as i32 - 1);
+    let top = ((cy - radius).floor() as i32).clamp(0, image_height as i32 - 1);
+    let bottom = ((cy + radius).ceil() as i32).clamp(0, image_height as i32 - 1);
+    let radius_sq = radius * radius;
+    for y in top..=bottom {
+        for x in left..=right {
+            let dx = x as f32 + 0.5 - cx;
+            let dy = y as f32 + 0.5 - cy;
+            if dx * dx + dy * dy <= radius_sq {
+                let offset = (y as usize * image_width as usize + x as usize) * 4;
+                rgba[offset..offset + 4].copy_from_slice(&color);
+            }
+        }
+    }
+}
+
+/// 沿点列逐段插值并盖实心圆，得到连贯的圆头笔迹。
+fn draw_brush_strokes(rgba: &mut [u8], image_width: u32, image_height: u32, strokes: &[BrushMark]) {
+    for stroke in strokes {
+        if stroke.points.is_empty() || image_width == 0 || image_height == 0 {
+            continue;
+        }
+        let radius = stroke.line_width.max(1) as f32 / 2.0;
+        let mut stamp = |cx: f32, cy: f32| {
+            fill_rgba_circle(rgba, image_width, image_height, cx, cy, radius, stroke.color);
+        };
+        let [mut px, mut py] = stroke.points[0];
+        stamp(px as f32, py as f32);
+        for point in &stroke.points[1..] {
+            let (x0, y0) = (px as f32, py as f32);
+            let (x1, y1) = (point[0] as f32, point[1] as f32);
+            let distance = ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();
+            let steps = distance.ceil().max(1.0) as u32;
+            for step in 1..=steps {
+                let t = step as f32 / steps as f32;
+                stamp(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
+            }
+            px = point[0];
+            py = point[1];
+        }
     }
 }
 
@@ -444,12 +644,12 @@ pub fn screenshot_latest_pixels(
     Ok(tauri::ipc::Response::new(pixels))
 }
 
-/// 按原图裁剪选区并合成矩形标记，返回 RGBA 原始像素。
+/// 按原图裁剪选区并合成全部标注，返回 RGBA 原始像素。
 #[tauri::command]
 pub fn screenshot_crop_pixels(
     state: tauri::State<CaptureState>,
     selection: SelectionRect,
-    marks: Vec<RectMark>,
+    annotation: Annotation,
 ) -> Result<tauri::ipc::Response, String> {
     let guard = state.0.lock().map_err(|e| e.to_string())?;
     let capture = guard.as_ref().ok_or_else(|| "暂无截图".to_string())?;
@@ -460,17 +660,17 @@ pub fn screenshot_crop_pixels(
         capture.meta.height,
         selection,
     )?;
-    draw_rect_marks(&mut pixels, selection.width, selection.height, &marks);
+    apply_annotation(&mut pixels, selection.width, selection.height, &annotation);
     Ok(tauri::ipc::Response::new(pixels))
 }
 
-/// 按原图裁剪选区、合成矩形标记并保存为 PNG。
+/// 按原图裁剪选区、合成全部标注并保存为 PNG。
 #[tauri::command]
 pub fn screenshot_save_selection(
     state: tauri::State<CaptureState>,
     path: String,
     selection: SelectionRect,
-    marks: Vec<RectMark>,
+    annotation: Annotation,
 ) -> Result<(), String> {
     let guard = state.0.lock().map_err(|e| e.to_string())?;
     let capture = guard.as_ref().ok_or_else(|| "暂无截图".to_string())?;
@@ -481,10 +681,20 @@ pub fn screenshot_save_selection(
         capture.meta.height,
         selection,
     )?;
-    draw_rect_marks(&mut pixels, selection.width, selection.height, &marks);
+    apply_annotation(&mut pixels, selection.width, selection.height, &annotation);
     let png = encode_png(&pixels, selection.width, selection.height)?;
     fs::write(&path, png).map_err(|e| format!("写入失败: {e}"))?;
     Ok(())
+}
+
+/// 合成顺序：马赛克 → 画笔 → 描边矩形（描边永远在最上层）。
+fn apply_annotation(pixels: &mut [u8], width: u32, height: u32, annotation: &Annotation) {
+    let source = pixels.to_vec();
+    for mark in &annotation.mosaics {
+        draw_mosaic_stroke(pixels, &source, width, height, mark);
+    }
+    draw_brush_strokes(pixels, width, height, &annotation.brush_strokes);
+    draw_rect_marks(pixels, width, height, &annotation.rect_marks);
 }
 
 /// 清理最近一次截图，释放原图内存。
@@ -497,7 +707,9 @@ pub fn screenshot_clear(state: tauri::State<CaptureState>) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     use super::{
-        clamp_selection, draw_rect_marks, preview_size, MonitorBounds, RectMark, SelectionRect,
+        apply_annotation, clamp_selection, draw_brush_strokes, draw_mosaic_stroke,
+        draw_rect_marks, preview_size, Annotation, BrushMark, MonitorBounds, MosaicMark, RectMark,
+        SelectionRect,
     };
 
     #[test]
@@ -580,5 +792,164 @@ mod tests {
         assert_eq!(pixel(3, 3), [255, 0, 0, 255]);
         assert_eq!(pixel(2, 2), [0, 0, 0, 0]);
         assert_eq!(pixel(0, 0), [0, 0, 0, 0]);
+    }
+
+    /// 4×4 红色通道梯度源图（pixel = y*4 + x*10）。
+    fn gradient_pixels() -> Vec<u8> {
+        let mut pixels = vec![0; 4 * 4 * 4];
+        for y in 0..4 {
+            for x in 0..4 {
+                let offset = (y * 4 + x) * 4;
+                pixels[offset] = (y * 4 + x * 10) as u8;
+                pixels[offset + 3] = 255;
+            }
+        }
+        pixels
+    }
+
+    #[test]
+    fn mosaic_stroke_pixelates_on_global_grid() {
+        // 单点笔迹（半径 2）涂过的像素替换为其所在 2×2 块的平均色，
+        // 同一块内的像素颜色一致，未涂到的像素保持原样。
+        let source = gradient_pixels();
+        let mut pixels = source.clone();
+        draw_mosaic_stroke(
+            &mut pixels,
+            &source,
+            4,
+            4,
+            &MosaicMark {
+                points: vec![[1, 1]],
+                line_width: 4,
+                block: 2,
+            },
+        );
+
+        let pixel = |x: usize, y: usize| pixels[(y * 4 + x) * 4];
+        assert_eq!(pixel(0, 0), (0 + 10 + 4 + 14) / 4, "左上块平均色");
+        assert_eq!(pixel(1, 1), pixel(0, 0), "同块同色");
+        assert_eq!(pixel(2, 0), (20 + 30 + 24 + 34) / 4, "右邻块独立平均");
+        assert_eq!(pixel(0, 2), (8 + 18 + 12 + 22) / 4, "下邻块独立平均");
+        assert_eq!(pixel(2, 2), 28, "圆外像素不受影响");
+        assert_eq!(pixel(3, 3), 42, "圆外像素不受影响");
+    }
+
+    #[test]
+    fn mosaic_stroke_clamps_edge_blocks() {
+        // 5×5 源图 + block=4：右/下边缘残块按实际范围内的像素取平均。
+        let mut source = vec![0; 5 * 5 * 4];
+        for y in 0..5 {
+            for x in 0..5 {
+                let offset = (y * 5 + x) * 4;
+                source[offset] = (x * 40) as u8;
+                source[offset + 3] = 255;
+            }
+        }
+        let mut pixels = source.clone();
+        draw_mosaic_stroke(
+            &mut pixels,
+            &source,
+            5,
+            5,
+            &MosaicMark {
+                points: vec![[4, 4]],
+                line_width: 2,
+                block: 4,
+            },
+        );
+
+        let pixel = |x: usize, y: usize| pixels[(y * 5 + x) * 4];
+        assert_eq!(pixel(3, 3), (0 + 40 + 80 + 120) / 4, "左上大块平均色");
+        assert_eq!(pixel(4, 4), 160, "右下角残块只有单列像素");
+        assert_eq!(pixel(4, 3), 160);
+        assert_eq!(pixel(0, 0), 0, "圆外像素不受影响");
+    }
+
+    #[test]
+    fn brush_stroke_single_point_is_a_round_dot() {
+        let mut pixels = vec![0; 5 * 5 * 4];
+        draw_brush_strokes(
+            &mut pixels,
+            5,
+            5,
+            &[BrushMark {
+                points: vec![[2, 2]],
+                line_width: 2,
+                color: [255, 0, 0, 255],
+            }],
+        );
+
+        let pixel = |x: usize, y: usize| {
+            let offset = (y * 5 + x) * 4;
+            <[u8; 4]>::try_from(&pixels[offset..offset + 4]).unwrap()
+        };
+        assert_eq!(pixel(2, 2), [255, 0, 0, 255]);
+        assert_eq!(pixel(1, 2), [255, 0, 0, 255]);
+        assert_eq!(pixel(3, 3), [0, 0, 0, 0], "半径 1 圆不应盖到对角");
+        assert_eq!(pixel(0, 2), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn brush_stroke_connects_points_with_round_caps() {
+        let mut pixels = vec![0; 8 * 6 * 4];
+        draw_brush_strokes(
+            &mut pixels,
+            8,
+            6,
+            &[BrushMark {
+                points: vec![[1, 3], [6, 3]],
+                line_width: 2,
+                color: [255, 0, 0, 255],
+            }],
+        );
+
+        let is_red = |x: usize, y: usize| pixels[(y * 8 + x) * 4] == 255;
+        assert!(is_red(0, 3), "圆头端点应超出点列范围");
+        assert!(is_red(6, 3));
+        assert!(!is_red(7, 3), "端点圆不应超出半径");
+        assert!(!is_red(3, 1), "线宽 2 不应覆盖两行以外");
+        assert!(is_red(3, 3));
+        assert!(is_red(3, 2));
+    }
+
+    #[test]
+    fn annotation_composes_mosaic_brush_and_rect_in_order() {
+        let mut pixels = vec![0; 4 * 4 * 4];
+        for offset in (0..pixels.len()).step_by(4) {
+            pixels[offset + 3] = 255;
+        }
+        apply_annotation(
+            &mut pixels,
+            4,
+            4,
+            &Annotation {
+                rect_marks: vec![RectMark {
+                    x: 0,
+                    y: 0,
+                    width: 4,
+                    height: 4,
+                    line_width: 1,
+                    color: [0, 255, 0, 255],
+                }],
+                mosaics: vec![MosaicMark {
+                    points: vec![[1, 1]],
+                    line_width: 2,
+                    block: 2,
+                }],
+                brush_strokes: vec![BrushMark {
+                    points: vec![[1, 1]],
+                    line_width: 2,
+                    color: [255, 0, 0, 255],
+                }],
+            },
+        );
+
+        let pixel = |x: usize, y: usize| {
+            let offset = (y * 4 + x) * 4;
+            <[u8; 4]>::try_from(&pixels[offset..offset + 4]).unwrap()
+        };
+        assert_eq!(pixel(0, 0), [0, 255, 0, 255], "描边矩形在最上层");
+        assert_eq!(pixel(1, 1), [255, 0, 0, 255], "画笔盖在马赛克上");
+        assert_eq!(pixel(2, 2), [0, 0, 0, 255], "圆外仍是原始像素");
     }
 }

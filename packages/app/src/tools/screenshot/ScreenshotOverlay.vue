@@ -7,7 +7,7 @@ import { writeImage } from '@tauri-apps/plugin-clipboard-manager'
 import { save } from '@tauri-apps/plugin-dialog'
 import { Image } from '@tauri-apps/api/image'
 import jsQR from 'jsqr'
-import { Check, Download, ScanQrCode, Square, Undo2, X } from 'lucide-vue-next'
+import { Brush, Check, Download, ScanQrCode, Square, Undo2, X } from 'lucide-vue-next'
 import {
   cropSelectionPixels,
   getLatestCapture,
@@ -15,8 +15,11 @@ import {
   finishScreenshot,
   CAPTURE_READY,
   saveSelection,
+  type Annotation,
+  type BrushMark,
   type Capture,
   type CapturePixels,
+  type MosaicMark,
   type RectMark,
   type SelectionRect,
 } from './screenshot'
@@ -35,15 +38,21 @@ const settled = computed(() => phase.value === 'idle' && hasSel.value)
 const toolbarVisible = computed(() => hasSel.value && (phase.value === 'idle' || phase.value === 'marking'))
 const toast = ref('')
 
-type Tool = 'select' | 'rect'
-interface UiRectMark {
+type Tool = 'select' | 'rect' | 'mosaic' | 'brush'
+type MarkKind = 'rect' | 'mosaic' | 'brush'
+// 坐标均为选区内 CSS 像素：rect/mosaic 用 x/y/w/h，brush 用 points
+interface UiMark {
   id: number
+  kind: MarkKind
   x: number
   y: number
   w: number
   h: number
   color: string
   lineWidth: number
+  /** 马赛克色块边长（CSS 像素） */
+  block: number
+  points: Array<[number, number]>
 }
 
 const MARK_COLORS = [
@@ -54,14 +63,30 @@ const MARK_COLORS = [
   { name: '黑色', css: '#111827', rgba: [17, 24, 39, 255] },
   { name: '白色', css: '#ffffff', rgba: [255, 255, 255, 255] },
 ] as const
-const MARK_WIDTHS = [2, 4, 6] as const
+const MARK_WIDTHS = [2, 4, 6, 10, 16] as const
+const MOSAIC_BLOCKS = [8, 14, 22] as const
 const tool = ref<Tool>('select')
 const markColor = ref<string>(MARK_COLORS[0].css)
 const markLineWidth = ref<number>(MARK_WIDTHS[1])
-const marks = ref<UiRectMark[]>([])
-const draftMark = ref<UiRectMark | null>(null)
+const mosaicBlock = ref<number>(MOSAIC_BLOCKS[1])
+const marks = ref<UiMark[]>([])
+const draftMark = ref<UiMark | null>(null)
+const markCanvas = ref<HTMLCanvasElement | null>(null)
 let nextMarkId = 1
 let markStart = { x: 0, y: 0 }
+
+// 涂抹/马赛克工具的圆形笔宽光标：圆点直径 = 当前线宽（框选保持十字光标）
+const cursor = reactive({ x: 0, y: 0, inside: false })
+const brushCursorVisible = computed(() =>
+  (tool.value === 'brush' || tool.value === 'mosaic') && cursor.inside,
+)
+const brushCursorStyle = computed(() => ({
+  left: `${cursor.x - sel.x}px`,
+  top: `${cursor.y - sel.y}px`,
+  width: `${markLineWidth.value}px`,
+  height: `${markLineWidth.value}px`,
+  backgroundColor: tool.value === 'mosaic' ? 'transparent' : markColor.value,
+}))
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
 type Handle = typeof HANDLES[number]
@@ -77,6 +102,99 @@ function resetSel() {
   marks.value = []
   draftMark.value = null
   toast.value = ''
+  redrawMarks()
+}
+
+// ── 标注预览（马赛克 + 画笔）────────────────────────────────
+// 画布挂在选区内（坐标即选区内 CSS 像素），选区移动/缩放时随 DOM 一起走，无需重绘。
+
+/** 整个选区的马赛克图层：小尺寸画布（色块网格锚定在选区原点，与 Rust 端一致）。 */
+const mosaicLayer = document.createElement('canvas')
+let mosaicLayerKey = ''
+/** 复用的临时画布：先把笔迹画成蒙版，再用 source-in 挖出马赛克区域。 */
+const mosaicScratch = document.createElement('canvas')
+
+function ensureMosaicLayer(base: HTMLCanvasElement, block: number, selW: number, selH: number) {
+  const bw = Math.max(1, Math.ceil(selW / block))
+  const bh = Math.max(1, Math.ceil(selH / block))
+  const key = `${bw}x${bh}@${block}@${sel.x},${sel.y}`
+  if (mosaicLayerKey === key) return
+  mosaicLayerKey = key
+  mosaicLayer.width = bw
+  mosaicLayer.height = bh
+  const tctx = mosaicLayer.getContext('2d')
+  if (!tctx) return
+  // 源画布位图与窗口 CSS 像素可能不是 1:1（预览被限制在 2560 内）
+  const kx = base.width / window.innerWidth
+  const ky = base.height / window.innerHeight
+  tctx.drawImage(base, sel.x * kx, sel.y * ky, selW * kx, selH * ky, 0, 0, bw, bh)
+}
+
+function drawMosaicMark(
+  ctx: CanvasRenderingContext2D,
+  base: HTMLCanvasElement,
+  mark: UiMark,
+  selW: number,
+  selH: number,
+) {
+  ensureMosaicLayer(base, mark.block, selW, selH)
+  mosaicScratch.width = selW
+  mosaicScratch.height = selH
+  const sctx = mosaicScratch.getContext('2d')
+  if (!sctx) return
+  sctx.globalCompositeOperation = 'source-over'
+  sctx.clearRect(0, 0, selW, selH)
+  // 1. 画笔迹蒙版（圆头，与 Rust 端 stamp 圆等价）
+  sctx.strokeStyle = '#000'
+  sctx.lineWidth = mark.lineWidth
+  sctx.lineCap = 'round'
+  sctx.lineJoin = 'round'
+  sctx.beginPath()
+  sctx.moveTo(mark.points[0][0], mark.points[0][1])
+  if (mark.points.length === 1) {
+    sctx.lineTo(mark.points[0][0] + 0.01, mark.points[0][1])
+  } else {
+    for (const [x, y] of mark.points.slice(1)) sctx.lineTo(x, y)
+  }
+  sctx.stroke()
+  // 2. source-in：只保留蒙版内的马赛克像素
+  sctx.globalCompositeOperation = 'source-in'
+  sctx.imageSmoothingEnabled = false
+  sctx.drawImage(mosaicLayer, 0, 0, mosaicLayer.width, mosaicLayer.height, 0, 0, selW, selH)
+  ctx.drawImage(mosaicScratch, 0, 0)
+}
+
+function drawBrushMark(ctx: CanvasRenderingContext2D, mark: UiMark) {
+  if (!mark.points.length) return
+  ctx.strokeStyle = mark.color
+  ctx.lineWidth = mark.lineWidth
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(mark.points[0][0], mark.points[0][1])
+  if (mark.points.length === 1) {
+    // 单点也要画出一个圆点
+    ctx.lineTo(mark.points[0][0] + 0.01, mark.points[0][1])
+  } else {
+    for (const [x, y] of mark.points.slice(1)) ctx.lineTo(x, y)
+  }
+  ctx.stroke()
+}
+
+function redrawMarks() {
+  const canvas = markCanvas.value
+  if (!canvas) return
+  const selW = Math.max(1, Math.ceil(sel.w))
+  const selH = Math.max(1, Math.ceil(sel.h))
+  canvas.width = selW
+  canvas.height = selH
+  const ctx = canvas.getContext('2d')
+  const base = shotCanvas.value
+  if (!ctx || !base) return
+  for (const mark of draftMark.value ? [...marks.value, draftMark.value] : marks.value) {
+    if (mark.kind === 'mosaic') drawMosaicMark(ctx, base, mark, selW, selH)
+    else if (mark.kind === 'brush') drawBrushMark(ctx, mark)
+  }
 }
 
 function toClampedBytes(payload: CapturePixels): Uint8ClampedArray {
@@ -177,9 +295,10 @@ function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min
 // 在空白处按下 → 新建选区
 function onBgMouseDown(e: MouseEvent) {
   if (e.button !== 0) return
-  if (tool.value === 'rect') return
+  if (tool.value !== 'select') return
   marks.value = []
   draftMark.value = null
+  redrawMarks()
   phase.value = 'creating'
   drag = { mx: e.clientX, my: e.clientY, x: e.clientX, y: e.clientY, w: 0, h: 0 }
   sel.x = e.clientX; sel.y = e.clientY; sel.w = 0; sel.h = 0
@@ -189,18 +308,21 @@ function onBgMouseDown(e: MouseEvent) {
 function onBodyMouseDown(e: MouseEvent) {
   if (e.button !== 0) return
   e.stopPropagation()
-  if (tool.value === 'rect') {
+  if (tool.value !== 'select') {
     const x = clamp(e.clientX - sel.x, 0, sel.w)
     const y = clamp(e.clientY - sel.y, 0, sel.h)
     markStart = { x, y }
     draftMark.value = {
       id: nextMarkId,
+      kind: tool.value,
       x,
       y,
       w: 0,
       h: 0,
       color: markColor.value,
       lineWidth: markLineWidth.value,
+      block: mosaicBlock.value,
+      points: tool.value === 'brush' || tool.value === 'mosaic' ? [[x, y]] : [],
     }
     phase.value = 'marking'
     return
@@ -220,16 +342,31 @@ function onHandleMouseDown(h: Handle, e: MouseEvent) {
 }
 
 function onMouseMove(e: MouseEvent) {
+  // 圆形光标跟随鼠标（无论是否在拖拽中），只在选区范围内显示
+  cursor.x = e.clientX
+  cursor.y = e.clientY
+  cursor.inside =
+    e.clientX >= sel.x && e.clientX <= sel.x + sel.w &&
+    e.clientY >= sel.y && e.clientY <= sel.y + sel.h
   if (phase.value === 'idle') return
   if (phase.value === 'marking') {
     const mark = draftMark.value
     if (!mark) return
     const x = clamp(e.clientX - sel.x, 0, sel.w)
     const y = clamp(e.clientY - sel.y, 0, sel.h)
+    if (mark.kind === 'brush' || mark.kind === 'mosaic') {
+      const last = mark.points[mark.points.length - 1]
+      if (!last || Math.hypot(x - last[0], y - last[1]) >= 1) {
+        mark.points.push([x, y])
+        redrawMarks()
+      }
+      return
+    }
     mark.x = Math.min(markStart.x, x)
     mark.y = Math.min(markStart.y, y)
     mark.w = Math.abs(x - markStart.x)
     mark.h = Math.abs(y - markStart.y)
+    if (mark.kind === 'mosaic') redrawMarks()
     return
   }
   const dx = e.clientX - drag.mx
@@ -262,7 +399,8 @@ function onMouseMove(e: MouseEvent) {
 function onMouseUp() {
   if (phase.value === 'marking') {
     const mark = draftMark.value
-    if (mark && mark.w > 3 && mark.h > 3) {
+    const keep = !!mark && (mark.kind === 'rect' ? mark.w > 3 && mark.h > 3 : mark.points.length >= 1)
+    if (mark && keep) {
       marks.value.push({ ...mark })
       nextMarkId += 1
     }
@@ -271,16 +409,18 @@ function onMouseUp() {
   if (phase.value === 'creating' && !hasSel.value) sel.w = 0
   phase.value = 'idle'
   activeHandle = ''
+  redrawMarks()
 }
 
-function toggleRectTool() {
-  tool.value = tool.value === 'rect' ? 'select' : 'rect'
+function toggleMarkTool(target: Tool) {
+  tool.value = tool.value === target ? 'select' : target
   draftMark.value = null
   phase.value = 'idle'
 }
 
 function undoMark() {
   marks.value.pop()
+  redrawMarks()
 }
 
 // ── 选区 ──────────────────────────────────────────────────
@@ -296,23 +436,47 @@ function selectionRect(): SelectionRect | null {
   return { x, y, width, height }
 }
 
-function outputMarks(selection: SelectionRect): RectMark[] {
+function markRgba(color: string): [number, number, number, number] {
+  const found = MARK_COLORS.find((item) => item.css === color) ?? MARK_COLORS[0]
+  return [...found.rgba] as [number, number, number, number]
+}
+
+function outputAnnotation(selection: SelectionRect): Annotation {
   const rx = selection.width / sel.w
   const ry = selection.height / sel.h
   const lineScale = (rx + ry) / 2
-  return marks.value.map((mark) => {
-    const color = MARK_COLORS.find((item) => item.css === mark.color) ?? MARK_COLORS[0]
+  const rectMarks: RectMark[] = []
+  const mosaics: MosaicMark[] = []
+  const brushStrokes: BrushMark[] = []
+  for (const mark of marks.value) {
+    const color = markRgba(mark.color)
+    if (mark.kind === 'brush' || mark.kind === 'mosaic') {
+      const points = mark.points.map(([px, py]) => [
+        clamp(Math.round(px * rx), 0, selection.width - 1),
+        clamp(Math.round(py * ry), 0, selection.height - 1),
+      ]) as Array<[number, number]>
+      const lineWidth = Math.max(1, Math.round(mark.lineWidth * lineScale))
+      if (mark.kind === 'brush') {
+        brushStrokes.push({ points, lineWidth, color })
+      } else {
+        mosaics.push({ points, lineWidth, block: Math.max(2, Math.round(mark.block * lineScale)) })
+      }
+      continue
+    }
     const x = clamp(Math.round(mark.x * rx), 0, selection.width - 1)
     const y = clamp(Math.round(mark.y * ry), 0, selection.height - 1)
-    return {
+    const width = Math.max(1, Math.min(selection.width - x, Math.round(mark.w * rx)))
+    const height = Math.max(1, Math.min(selection.height - y, Math.round(mark.h * ry)))
+    rectMarks.push({
       x,
       y,
-      width: Math.max(1, Math.min(selection.width - x, Math.round(mark.w * rx))),
-      height: Math.max(1, Math.min(selection.height - y, Math.round(mark.h * ry))),
+      width,
+      height,
       lineWidth: Math.max(1, Math.round(mark.lineWidth * lineScale)),
-      color: [...color.rgba],
-    }
-  })
+      color,
+    })
+  }
+  return { rectMarks, mosaics, brushStrokes }
 }
 
 async function doSave() {
@@ -321,7 +485,7 @@ async function doSave() {
   try {
     const path = await save({ defaultPath: 'screenshot.png' })
     if (!path) return
-    await saveSelection(path, selection, outputMarks(selection))
+    await saveSelection(path, selection, outputAnnotation(selection))
     await close()
   } catch (e: any) {
     toast.value = `保存失败：${String(e?.message || e)}`
@@ -332,7 +496,7 @@ async function doCopy() {
   const selection = selectionRect()
   if (!selection) return
   try {
-    const pixels = toBytes(await cropSelectionPixels(selection, outputMarks(selection)))
+    const pixels = toBytes(await cropSelectionPixels(selection, outputAnnotation(selection)))
     const image = await Image.new(pixels, selection.width, selection.height)
     await writeImage(image)
     await close()
@@ -373,19 +537,20 @@ function cancel() { void close() }
 const selStyle = computed(() => ({
   left: `${sel.x}px`, top: `${sel.y}px`, width: `${sel.w}px`, height: `${sel.h}px`,
 }))
+const rectMarks = computed(() => marks.value.filter((mark) => mark.kind === 'rect'))
 const sizeStyle = computed(() => ({
   top: `${Math.max(2, sel.y - 22)}px`, left: `${sel.x}px`,
 }))
 const toolbarStyle = computed(() => {
-  const toolbarHeight = tool.value === 'rect' ? 78 : 38
+  const toolbarHeight = tool.value === 'select' ? 38 : 78
   const below = sel.y + sel.h + toolbarHeight + 8 < window.innerHeight
   const top = below ? sel.y + sel.h + 8 : Math.max(8, sel.y - toolbarHeight - 8)
-  const desiredWidth = tool.value === 'rect' ? 267 : 216
+  const desiredWidth = tool.value === 'mosaic' ? 270 : 320
   const toolbarWidth = Math.min(desiredWidth, window.innerWidth - 16)
   const left = clamp(sel.x + sel.w - toolbarWidth, 8, Math.max(8, window.innerWidth - toolbarWidth - 8))
   return { top: `${top}px`, left: `${left}px` }
 })
-function markStyle(mark: UiRectMark) {
+function markStyle(mark: UiMark) {
   return {
     left: `${mark.x}px`,
     top: `${mark.y}px`,
@@ -408,6 +573,20 @@ const handleCursor: Record<Handle, string> = {
   nw: 'nwse-resize', n: 'ns-resize', ne: 'nesw-resize', e: 'ew-resize',
   se: 'nwse-resize', s: 'ns-resize', sw: 'nesw-resize', w: 'ew-resize',
 }
+
+/** 色块大小选项的网格小样：相邻格子颜色必不同，网格线清晰。 */
+function mosaicSampleCells(block: number) {
+  const n = block >= MOSAIC_BLOCKS[2] ? 2 : block >= MOSAIC_BLOCKS[1] ? 3 : 4
+  const size = 14 / n
+  const shades = ['#c9ced6', '#8a93a1', '#5b6472', '#39414d']
+  const cells: Array<{ x: number; y: number; s: number; fill: string }> = []
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      cells.push({ x: i * size, y: j * size, s: size, fill: shades[(i * 3 + j * 5) % shades.length] })
+    }
+  }
+  return cells
+}
 </script>
 
 <template>
@@ -417,6 +596,7 @@ const handleCursor: Record<Handle, string> = {
     @mousedown="onBgMouseDown"
     @mousemove="onMouseMove"
     @mouseup="onMouseUp"
+    @mouseleave="cursor.inside = false"
   >
     <canvas v-if="capture" ref="shotCanvas" class="shot" />
 
@@ -427,21 +607,29 @@ const handleCursor: Record<Handle, string> = {
     <div
       v-if="capture && hasSel"
       class="sel"
-      :class="{ marking: tool === 'rect' }"
+      :class="{ marking: tool === 'rect', hideCursor: tool === 'brush' || tool === 'mosaic' }"
       :style="selStyle"
       @mousedown="onBodyMouseDown"
       @dblclick.stop="tool === 'select' && doCopy()"
       title="拖动可移动，双击复制"
     >
       <div class="marks-layer">
+        <canvas ref="markCanvas" class="mark-canvas" />
         <span
-          v-for="mark in marks"
+          v-for="mark in rectMarks"
           :key="mark.id"
           class="rect-mark"
           :style="markStyle(mark)"
         />
-        <span v-if="draftMark" class="rect-mark" :style="markStyle(draftMark)" />
+        <span v-if="draftMark && draftMark.kind === 'rect'" class="rect-mark" :style="markStyle(draftMark)" />
       </div>
+      <!-- 圆形笔宽光标：直径随当前线宽，颜色随当前颜色（马赛克用棋盘格底） -->
+      <span
+        v-if="brushCursorVisible"
+        class="brush-cursor"
+        :class="{ mosaic: tool === 'mosaic' }"
+        :style="brushCursorStyle"
+      />
       <!-- 缩放手柄 -->
       <template v-if="settled && tool === 'select'">
         <span
@@ -463,8 +651,30 @@ const handleCursor: Record<Handle, string> = {
           :class="{ selected: tool === 'rect' }"
           title="框选标记"
           aria-label="框选标记"
-          @click="toggleRectTool"
+          @click="toggleMarkTool('rect')"
         ><Square :size="18" /></button>
+        <button
+          class="tb icon-tool"
+          :class="{ selected: tool === 'brush' }"
+          title="画笔涂抹"
+          aria-label="画笔涂抹"
+          @click="toggleMarkTool('brush')"
+        ><Brush :size="18" /></button>
+        <button
+          class="tb icon-tool"
+          :class="{ selected: tool === 'mosaic' }"
+          title="马赛克"
+          aria-label="马赛克"
+          @click="toggleMarkTool('mosaic')"
+        >
+          <!-- 自定义图标：深浅不一的马赛克色块拼贴 -->
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <rect x="3" y="3" width="9" height="9" rx="1.5" />
+            <rect x="14" y="3" width="7" height="9" rx="1.5" opacity="0.45" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" opacity="0.65" />
+            <rect x="12" y="14" width="9" height="7" rx="1.5" opacity="0.3" />
+          </svg>
+        </button>
         <span class="separator" />
         <button class="tb icon-tool" title="识别选区中的二维码" aria-label="识别二维码" @click="doDecode"><ScanQrCode :size="18" /></button>
         <button class="tb icon-tool" :disabled="!marks.length" title="撤销标记（Ctrl+Z）" aria-label="撤销标记" @click="undoMark"><Undo2 :size="18" /></button>
@@ -474,7 +684,7 @@ const handleCursor: Record<Handle, string> = {
         <button class="tb icon-tool confirm" title="复制到剪贴板（双击选区）" aria-label="复制" @click="doCopy"><Check :size="18" /></button>
       </div>
 
-      <div v-if="tool === 'rect'" class="toolbar-row option-row">
+      <div v-if="tool === 'rect' || tool === 'brush'" class="toolbar-row option-row">
         <button
           v-for="width in MARK_WIDTHS"
           :key="width"
@@ -495,6 +705,37 @@ const handleCursor: Record<Handle, string> = {
           :aria-label="color.name"
           @click="markColor = color.css"
         />
+      </div>
+
+      <div v-else-if="tool === 'mosaic'" class="toolbar-row option-row">
+        <button
+          v-for="width in MARK_WIDTHS"
+          :key="width"
+          class="width-option"
+          :class="{ selected: markLineWidth === width }"
+          :title="`${width} 像素线宽`"
+          :aria-label="`${width} 像素线宽`"
+          @click="markLineWidth = width"
+        ><span :style="{ height: `${width}px` }" /></button>
+        <span class="separator" />
+        <button
+          v-for="block in MOSAIC_BLOCKS"
+          :key="block"
+          class="width-option"
+          :class="{ selected: mosaicBlock === block }"
+          :title="`${block} 像素色块`"
+          :aria-label="`${block} 像素色块`"
+          @click="mosaicBlock = block"
+        >
+          <!-- 像素网格小样：色块越大格子越少越粗 -->
+          <svg width="14" height="14" viewBox="0 0 14 14" shape-rendering="crispEdges" aria-hidden="true">
+            <rect
+              v-for="(cell, ci) in mosaicSampleCells(block)"
+              :key="ci"
+              :x="cell.x" :y="cell.y" :width="cell.s" :height="cell.s" :fill="cell.fill"
+            />
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -529,7 +770,30 @@ const handleCursor: Record<Handle, string> = {
   cursor: move;
 }
 .sel.marking { cursor: crosshair; }
+.sel.hideCursor { cursor: none; }
+.brush-cursor {
+  position: absolute; display: block; border-radius: 50%;
+  pointer-events: none; transform: translate(-50%, -50%);
+  /* 描边全部内嵌（border-box + inset 阴影），外沿直径严格等于线宽 */
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+/* 固定间距的外圈细线：细线宽（2px 档）时也能看清光标位置，
+   且与圆点保持空隙，不会影响对实际笔画粗细的判断 */
+.brush-cursor::after {
+  content: ''; position: absolute; inset: -6px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+.brush-cursor.mosaic {
+  background-image:
+    linear-gradient(45deg, #bbb 25%, transparent 25%, transparent 75%, #bbb 75%),
+    linear-gradient(45deg, #bbb 25%, #eee 25%, #eee 75%, #bbb 75%);
+}
 .marks-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.mark-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .rect-mark {
   position: absolute; display: block; border-style: solid;
   background: transparent; pointer-events: none;
