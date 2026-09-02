@@ -1,3 +1,6 @@
+/// 应用标识，与 tauri.conf.json 的 identifier 保持一致；各平台自启动实现共用。
+const APP_IDENTIFIER: &str = "com.while.sbox";
+
 #[cfg(target_os = "windows")]
 mod imp {
     use std::{env, mem, slice};
@@ -12,8 +15,9 @@ mod imp {
         },
     };
 
+    use super::APP_IDENTIFIER;
+
     const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-    const VALUE_NAME: &str = "com.wandergame.sbox";
 
     struct RegKey(HKEY);
 
@@ -83,7 +87,7 @@ mod imp {
         let Some(key) = open_run_key_for_read()? else {
             return Ok(false);
         };
-        let name = to_wide(VALUE_NAME);
+        let name = to_wide(APP_IDENTIFIER);
         let mut size = 0u32;
         let status = unsafe {
             RegQueryValueExW(
@@ -106,7 +110,7 @@ mod imp {
 
     pub fn set_enabled(enabled: bool) -> Result<(), String> {
         let key = open_or_create_run_key_for_write()?;
-        let name = to_wide(VALUE_NAME);
+        let name = to_wide(APP_IDENTIFIER);
         let status = if enabled {
             let command = to_wide(&run_command()?);
             unsafe {
@@ -139,7 +143,7 @@ mod imp {
         path::{Path, PathBuf},
     };
 
-    const LABEL: &str = "com.wandergame.sbox";
+    use super::APP_IDENTIFIER;
 
     fn home_dir() -> Result<PathBuf, String> {
         env::var_os("HOME")
@@ -151,7 +155,7 @@ mod imp {
         Ok(home_dir()?
             .join("Library")
             .join("LaunchAgents")
-            .join(format!("{LABEL}.plist")))
+            .join(format!("{APP_IDENTIFIER}.plist")))
     }
 
     fn escape_xml(value: &str) -> String {
@@ -171,7 +175,7 @@ mod imp {
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>{LABEL}</string>
+  <string>{APP_IDENTIFIER}</string>
   <key>ProgramArguments</key>
   <array>
     <string>{exe}</string>
@@ -209,7 +213,7 @@ mod imp {
 mod imp {
     use std::{env, fs, path::PathBuf};
 
-    const APP_ID: &str = "com.wandergame.sbox";
+    use super::APP_IDENTIFIER;
 
     fn config_home() -> Result<PathBuf, String> {
         if let Some(path) = env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
@@ -223,7 +227,7 @@ mod imp {
     fn desktop_path() -> Result<PathBuf, String> {
         Ok(config_home()?
             .join("autostart")
-            .join(format!("{APP_ID}.desktop")))
+            .join(format!("{APP_IDENTIFIER}.desktop")))
     }
 
     fn escape_desktop_value(value: &str) -> String {
