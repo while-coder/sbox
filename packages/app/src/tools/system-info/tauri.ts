@@ -55,6 +55,13 @@ export interface MemoryModule {
   kind?: string
 }
 
+/** 单个内存插槽：空闲时 module 为空，系统未报名称的空槽 slot 为空。 */
+export interface MemorySlot {
+  slot?: string
+  occupied: boolean
+  module?: MemoryModule | null
+}
+
 export interface MemoryInfo {
   totalBytes: number
   usedBytes: number
@@ -63,6 +70,8 @@ export interface MemoryInfo {
   swapUsedBytes: number
   slotCount?: number
   modules: MemoryModule[]
+  /** 全部插槽（含空闲），用于逐槽展示占用情况 */
+  slots: MemorySlot[]
 }
 
 export interface GpuInfo {
@@ -93,6 +102,13 @@ export interface VolumeInfo {
   kind?: string
   /** 所属物理磁盘型号 */
   diskModel?: string
+}
+
+/** 主板物理插槽（PCIe 等）。M.2 / 直连硬盘槽位的占用系统层拿不到。 */
+export interface BoardSlotInfo {
+  designation: string
+  usage?: string
+  status?: string
 }
 
 export interface NetworkInfo {
@@ -147,7 +163,7 @@ export type SectionData =
   | { kind: 'cpu'; cpu: CpuInfo }
   | { kind: 'memory'; memory: MemoryInfo }
   | { kind: 'graphics'; gpus: GpuInfo[]; monitors: MonitorInfo[] }
-  | { kind: 'storage'; drives: DriveInfo[]; volumes: VolumeInfo[] }
+  | { kind: 'storage'; drives: DriveInfo[]; volumes: VolumeInfo[]; slots: BoardSlotInfo[] }
   | { kind: 'network'; networks: NetworkInfo[] }
   | { kind: 'peripherals'; peripherals: PeripheralInfo[] }
 

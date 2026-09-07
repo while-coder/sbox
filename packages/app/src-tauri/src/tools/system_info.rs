@@ -49,6 +49,8 @@ pub enum SectionData {
     Storage {
         drives: Vec<DriveInfo>,
         volumes: Vec<VolumeInfo>,
+        /// 主板插槽（PCIe 等）。M.2 / 直连硬盘槽位的占用系统层拿不到，不在此列
+        slots: Vec<BoardSlotInfo>,
     },
     Network {
         networks: Vec<NetworkInfo>,
@@ -106,6 +108,18 @@ pub struct DeviceInfo {
     pub uptime_secs: u64,
 }
 
+/// 主板物理插槽（SMBIOS Type 9，Windows: Win32_SystemSlot，macOS: SPPCIDataType），挂在存储段展示。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardSlotInfo {
+    /// 插槽编号，如 "J6B2" / "PCIEX16_1"
+    pub designation: String,
+    /// 占用状态：空闲 / 使用中
+    pub usage: Option<String>,
+    /// 设备状态，如 "OK"（仅 Windows）
+    pub status: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CpuInfo {
@@ -151,9 +165,21 @@ pub struct MemoryInfo {
     pub slot_count: Option<u32>,
     /// 已安装的内存条
     pub modules: Vec<MemoryModule>,
+    /// 全部插槽（含空闲），用于逐槽展示占用情况
+    pub slots: Vec<MemorySlot>,
 }
 
+/// 单个内存插槽：空闲时 module 为 None，系统未报名称的空槽 slot 为 None。
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemorySlot {
+    /// 插槽位置，如 "DDR5-A1"
+    pub slot: Option<String>,
+    pub occupied: bool,
+    pub module: Option<MemoryModule>,
+}
+
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryModule {
     /// 插槽位置，如 "ChannelA-DIMM0"
@@ -458,6 +484,7 @@ fn sysinfo_memory() -> MemoryInfo {
         swap_used_bytes: system.used_swap(),
         slot_count: None,
         modules: Vec::new(),
+        slots: Vec::new(),
     }
 }
 
@@ -552,8 +579,12 @@ fn collect_section(section: Section) -> Result<SectionData, String> {
             SectionData::Graphics { gpus, monitors }
         }
         Section::Storage => {
-            let (drives, volumes) = platform::storage_section();
-            SectionData::Storage { drives, volumes }
+            let (drives, volumes, slots) = platform::storage_section();
+            SectionData::Storage {
+                drives,
+                volumes,
+                slots,
+            }
         }
         Section::Network => SectionData::Network {
             networks: platform::network_section(),
@@ -659,6 +690,8 @@ $volumes = @(Get-CimInstance Win32_LogicalDisk) | ForEach-Object {
 [pscustomobject]@{
   drives = @(Get-CimInstance Win32_DiskDrive) | Select-Object Model, InterfaceType, MediaType, Size, SerialNumber, Partitions
   volumes = $volumes
+  # SMBIOS Type 9：主板物理插槽（PCIe 等）。M.2 槽位多数主板不报，占用情况系统层拿不到
+  slots = @(Get-CimInstance Win32_SystemSlot) | Select-Object SlotDesignation, CurrentUsage, Status
 } | ConvertTo-Json -Compress -Depth 3";
 
     const NETWORK_SCRIPT: &str = "\
@@ -762,26 +795,41 @@ $volumes = @(Get-CimInstance Win32_LogicalDisk) | ForEach-Object {
         let Some(value) = run_cim(MEMORY_SCRIPT) else {
             return memory;
         };
-        if let Some(modules) = as_items(value.get("memoryModules")) {
-            memory.modules = modules
-                .iter()
-                .filter_map(|module| {
-                    // Capacity 为 0 或缺失的插槽没有插内存条
-                    let capacity = u64_field(module, "Capacity").filter(|capacity| *capacity > 0)?;
-                    Some(super::MemoryModule {
-                        slot: str_field(module, "DeviceLocator"),
-                        bank: str_field(module, "BankLabel"),
-                        manufacturer: str_field(module, "Manufacturer"),
-                        part_number: str_field(module, "PartNumber"),
-                        capacity_bytes: Some(capacity),
-                        speed_mhz: u64_field(module, "Speed"),
-                        configured_speed_mhz: u64_field(module, "ConfiguredClockSpeed"),
-                        kind: memory_kind(u64_field(module, "SMBIOSMemoryType").unwrap_or(0)),
+        // Win32_PhysicalMemory 对应 SMBIOS Type 17，部分主板会为空槽也生成记录（Capacity 为 0）
+        let mut slots: Vec<super::MemorySlot> = as_items(value.get("memoryModules"))
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|module| {
+                        let capacity = u64_field(module, "Capacity").unwrap_or(0);
+                        let occupied = capacity > 0;
+                        Some(super::MemorySlot {
+                            slot: str_field(module, "DeviceLocator").or_else(|| str_field(module, "BankLabel")),
+                            occupied,
+                            module: occupied.then(|| super::MemoryModule {
+                                slot: str_field(module, "DeviceLocator"),
+                                bank: str_field(module, "BankLabel"),
+                                manufacturer: str_field(module, "Manufacturer"),
+                                part_number: str_field(module, "PartNumber"),
+                                capacity_bytes: Some(capacity),
+                                speed_mhz: u64_field(module, "Speed"),
+                                configured_speed_mhz: u64_field(module, "ConfiguredClockSpeed"),
+                                kind: memory_kind(u64_field(module, "SMBIOSMemoryType").unwrap_or(0)),
+                            }),
+                        })
                     })
-                })
-                .collect();
+                    .collect()
+            })
+            .unwrap_or_default();
+        memory.slot_count = u64_field(&value, "memorySlots").map(|count| count as u32);
+        // 主板只为已插条生成记录时，用 PhysicalMemoryArray 的槽位总数补齐空槽占位
+        if let Some(total) = memory.slot_count {
+            while slots.len() < total as usize {
+                slots.push(super::MemorySlot { slot: None, occupied: false, module: None });
+            }
         }
-        memory.slot_count = u64_field(&value, "memorySlots").map(|slots| slots as u32);
+        memory.slots = slots;
+        memory.modules = memory.slots.iter().filter_map(|slot| slot.module.clone()).collect();
         memory
     }
 
@@ -842,10 +890,24 @@ $volumes = @(Get-CimInstance Win32_LogicalDisk) | ForEach-Object {
         (gpus, monitors)
     }
 
-    pub fn storage_section() -> (Vec<DriveInfo>, Vec<VolumeInfo>) {
+    pub fn storage_section() -> (Vec<DriveInfo>, Vec<VolumeInfo>, Vec<super::BoardSlotInfo>) {
         let Some(value) = run_cim(STORAGE_SCRIPT) else {
-            return (Vec::new(), super::sysinfo_volumes());
+            return (Vec::new(), super::sysinfo_volumes(), Vec::new());
         };
+        let slots = as_items(value.get("slots"))
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        Some(super::BoardSlotInfo {
+                            designation: str_field(item, "SlotDesignation")?,
+                            usage: u64_field(item, "CurrentUsage").map(slot_usage_name).map(|usage| usage.to_string()),
+                            status: str_field(item, "Status"),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let drives = as_items(value.get("drives"))
             .map(|items| {
                 items
@@ -882,7 +944,7 @@ $volumes = @(Get-CimInstance Win32_LogicalDisk) | ForEach-Object {
                     .collect()
             })
             .unwrap_or_default();
-        (drives, volumes)
+        (drives, volumes, slots)
     }
 
     pub fn network_section() -> Vec<NetworkInfo> {
@@ -933,6 +995,17 @@ $volumes = @(Get-CimInstance Win32_LogicalDisk) | ForEach-Object {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Win32_SystemSlot.CurrentUsage 代码 → 占用状态名。
+    fn slot_usage_name(code: u64) -> &'static str {
+        match code {
+            3 => "空闲",
+            4 => "使用中",
+            5 => "不可用",
+            1 => "其他",
+            _ => "未知",
+        }
     }
 
     /// SMBIOS 内存类型代码 → 代际名。
@@ -1071,6 +1144,32 @@ $volumes = @(Get-CimInstance Win32_LogicalDisk) | ForEach-Object {
         }
 
         #[test]
+        fn memory_section_reports_slot_occupancy() {
+            let data = collect_section(Section::Memory).expect("内存段采集应成功");
+            let SectionData::Memory { memory } = data else {
+                panic!("内存段应返回 Memory 分支");
+            };
+            assert!(!memory.slots.is_empty(), "应能读取到内存插槽");
+            assert!(
+                memory.slots.iter().any(|slot| slot.occupied),
+                "至少应有一个插槽在使用中"
+            );
+            assert!(
+                memory.slot_count.is_none_or(|total| memory.slots.len() <= total as usize),
+                "补齐后插槽数不应超过 PhysicalMemoryArray 报告的总数"
+            );
+        }
+
+        #[test]
+        fn storage_section_reports_board_slots() {
+            let data = collect_section(Section::Storage).expect("存储段采集应成功");
+            let SectionData::Storage { slots, .. } = data else {
+                panic!("存储段应返回 Storage 分支");
+            };
+            assert!(!slots.is_empty(), "应能读取到主板插槽（Win32_SystemSlot）");
+        }
+
+        #[test]
         fn graphics_section_reports_vram() {
             let data = collect_section(Section::Graphics).expect("显卡段采集应成功");
             let SectionData::Graphics { gpus, .. } = data else {
@@ -1152,6 +1251,12 @@ mod macos_impl {
                     kind: str_field(module, "ddr_type").or_else(|| str_field(module, "memory_type")),
                 })
                 .collect();
+            // system_profiler 只列已插条（Apple Silicon 内存为板载），逐条标记占用
+            memory.slots = memory
+                .modules
+                .iter()
+                .map(|module| super::MemorySlot { slot: module.slot.clone(), occupied: true, module: Some(module.clone()) })
+                .collect();
         }
         memory
     }
@@ -1203,7 +1308,7 @@ mod macos_impl {
         (gpus, monitors)
     }
 
-    pub fn storage_section() -> (Vec<DriveInfo>, Vec<VolumeInfo>) {
+    pub fn storage_section() -> (Vec<DriveInfo>, Vec<VolumeInfo>, Vec<super::BoardSlotInfo>) {
         let storage = run_profiler("SPStorageDataType SPNVMeDataType");
         let volumes = storage
             .get("SPStorageDataType")
@@ -1246,7 +1351,25 @@ mod macos_impl {
                     .collect()
             })
             .unwrap_or_default();
-        (drives, volumes)
+        // PCIe 插槽（Mac Pro 等可扩展机型）；Apple Silicon 全部板载，返回空。
+        // system_profiler 只列已插卡的槽，空槽不会出现
+        let slots = run_profiler("SPPCIDataType")
+            .get("SPPCIDataType")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|slot| {
+                        Some(super::BoardSlotInfo {
+                            designation: str_field(slot, "_name")?,
+                            usage: Some("使用中".into()),
+                            status: None,
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        (drives, volumes, slots)
     }
 
     pub fn network_section() -> Vec<NetworkInfo> {
@@ -1426,8 +1549,9 @@ mod linux_impl {
         (list_gpus_from_lspci(), list_monitors_from_xrandr())
     }
 
-    pub fn storage_section() -> (Vec<DriveInfo>, Vec<VolumeInfo>) {
-        (list_drives_from_lsblk(), filter_real_volumes(super::sysinfo_volumes()))
+    /// 主板插槽需要 root 权限的 dmidecode，普通进程拿不到，返回空。
+    pub fn storage_section() -> (Vec<DriveInfo>, Vec<VolumeInfo>, Vec<super::BoardSlotInfo>) {
+        (list_drives_from_lsblk(), filter_real_volumes(super::sysinfo_volumes()), Vec::new())
     }
 
     pub fn network_section() -> Vec<NetworkInfo> {
@@ -1649,8 +1773,8 @@ mod other_impl {
         (Vec::new(), Vec::new())
     }
 
-    pub fn storage_section() -> (Vec<DriveInfo>, Vec<VolumeInfo>) {
-        (Vec::new(), super::sysinfo_volumes())
+    pub fn storage_section() -> (Vec<DriveInfo>, Vec<VolumeInfo>, Vec<super::BoardSlotInfo>) {
+        (Vec::new(), super::sysinfo_volumes(), Vec::new())
     }
 
     pub fn network_section() -> Vec<NetworkInfo> {

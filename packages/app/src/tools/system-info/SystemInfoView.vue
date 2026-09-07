@@ -8,6 +8,8 @@ import {
   type SectionData,
   type SectionKey,
   type SummaryInfo,
+  type MemoryModule,
+  type MemorySlot,
 } from './tauri'
 
 /** 瀑布式段定义：label 为卡片标题，key 对应后端采集段（publicIp 走独立接口）。 */
@@ -50,6 +52,24 @@ const memoryPercent = computed(() => {
   if (!summary.value?.memoryTotalBytes) return 0
   return (summary.value.memoryUsedBytes / summary.value.memoryTotalBytes) * 100
 })
+
+/** 逐槽展示数据：后端 slots 优先；缺失时用已装内存条退化成"全部占用"视图。 */
+const memorySlots = computed<MemorySlot[]>(() => {
+  const memory = sectionData('memory')
+  if (memory?.kind !== 'memory') return []
+  if (memory.memory.slots.length) return memory.memory.slots
+  return memory.memory.modules.map(module => ({ slot: module.slot, occupied: true, module }))
+})
+
+function moduleDetail(module: MemoryModule): string {
+  return join(
+    module.kind,
+    formatBytes(module.capacityBytes),
+    module.manufacturer,
+    module.partNumber,
+    module.configuredSpeedMhz || module.speedMhz ? `${module.configuredSpeedMhz || module.speedMhz} MHz` : '',
+  )
+}
 
 function sectionData(key: SectionKeyAll): SectionData | PublicIpInfo | undefined {
   return state[key]?.data
@@ -186,9 +206,9 @@ function buildReport(): string {
   if (memory?.kind === 'memory') {
     const m = memory.memory
     lines.push('', '【内存】')
-    if (m.slotCount) lines.push(`插槽：${m.modules.length}/${m.slotCount} 已用`)
-    for (const module of m.modules) {
-      lines.push(`  ${module.slot || '—'}：${formatBytes(module.capacityBytes)} ${module.kind || ''} ${module.manufacturer || ''} ${module.partNumber || ''} ${module.configuredSpeedMhz || module.speedMhz ? `${module.configuredSpeedMhz || module.speedMhz} MHz` : ''}`)
+    if (m.slotCount) lines.push(`插槽：已用 ${m.modules.length}/${m.slotCount}，空闲 ${m.slotCount - m.modules.length}`)
+    for (const slot of m.slots.length ? m.slots : m.modules.map(module => ({ slot: module.slot, occupied: true, module }))) {
+      lines.push(`  ${slot.slot || '空闲插槽'}：${slot.occupied && slot.module ? moduleDetail(slot.module) : '空闲'}`)
     }
   }
   const graphics = sectionData('graphics')
@@ -214,6 +234,13 @@ function buildReport(): string {
     lines.push('', '【存储卷】')
     for (const volume of storage.volumes) {
       lines.push(`${volume.mount}（${volume.label || '本地磁盘'}，${volume.fileSystem || '—'}${volume.diskModel ? `，位于 ${volume.diskModel}` : ''}）：${formatBytes(volume.freeBytes)} 可用 / 共 ${formatBytes(volume.totalBytes)}`)
+    }
+    if (storage.slots.length) {
+      lines.push('', '【主板插槽】')
+      for (const slot of storage.slots) {
+        const kind = /m\.?2/i.test(slot.designation) ? '（M.2）' : ''
+        lines.push(`${slot.designation}${kind}：${slot.usage || '未知'}${slot.status ? `（${slot.status}）` : ''}`)
+      }
     }
   }
   const network = sectionData('network')
@@ -365,15 +392,20 @@ async function copyReport() {
           </div>
           <dl v-if="state[sec.key].data.memory.modules.length || state[sec.key].data.memory.slotCount">
             <div>
-              <dt>内存条</dt>
+              <dt>内存插槽</dt>
               <dd>
                 <span v-if="!state[sec.key].data.memory.modules.length">未读取到内存条信息</span>
-                <span v-else-if="state[sec.key].data.memory.slotCount">已安装 {{ state[sec.key].data.memory.modules.length }} / {{ state[sec.key].data.memory.slotCount }} 条</span>
+                <span v-else-if="state[sec.key].data.memory.slotCount">已用 {{ state[sec.key].data.memory.modules.length }} / {{ state[sec.key].data.memory.slotCount }} 条，空闲 {{ state[sec.key].data.memory.slotCount - state[sec.key].data.memory.modules.length }} 条</span>
+                <span v-else>已安装 {{ state[sec.key].data.memory.modules.length }} 条</span>
               </dd>
             </div>
-            <div v-for="(module, index) in state[sec.key].data.memory.modules" :key="`${module.slot}-${index}`">
-              <dt>{{ module.slot || module.bank || '内存条' }}</dt>
-              <dd>{{ join(module.kind, formatBytes(module.capacityBytes), module.manufacturer, module.partNumber, module.configuredSpeedMhz || module.speedMhz ? `${module.configuredSpeedMhz || module.speedMhz} MHz` : '') }}</dd>
+            <!-- 逐槽展示：占用槽显示内存条详情，空闲槽灰显 -->
+            <div v-for="(slot, index) in memorySlots" :key="`${slot.slot ?? 'free'}-${index}`">
+              <dt>{{ slot.slot || `空闲插槽 ${index + 1}` }}</dt>
+              <dd>
+                <span v-if="slot.occupied && slot.module">{{ moduleDetail(slot.module) }}</span>
+                <span v-else class="free">空闲</span>
+              </dd>
             </div>
           </dl>
         </template>
@@ -422,6 +454,17 @@ async function copyReport() {
             </article>
           </template>
           <p v-else class="empty">未识别到物理磁盘信息。</p>
+          <!-- 主板插槽（PCIe 等）：与磁盘的安装位置相关，集中在存储块展示 -->
+          <template v-if="state[sec.key].data.slots.length">
+            <h4>主板插槽</h4>
+            <dl>
+              <div v-for="slot in state[sec.key].data.slots" :key="slot.designation">
+                <dt>{{ slot.designation }}{{ /m\.?2/i.test(slot.designation) ? '（M.2）' : '' }}</dt>
+                <dd>{{ slot.usage || '未知' }}{{ slot.status ? ` · ${slot.status}` : '' }}</dd>
+              </div>
+            </dl>
+            <p class="helper">M.2 / 硬盘插槽的占用情况系统不提供。</p>
+          </template>
           <h4>存储卷</h4>
           <template v-if="state[sec.key].data.volumes.length">
             <article v-for="volume in state[sec.key].data.volumes" :key="volume.mount" class="item">
@@ -499,6 +542,7 @@ dl > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px
 dl > div:last-child { border-bottom: none; }
 dt { color: var(--fg-muted); font-size: 12px; padding-top: 2px; }
 dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+dd .free { color: var(--fg-muted); }
 code { font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .item { padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
 .item:last-child { margin-bottom: 0; }
