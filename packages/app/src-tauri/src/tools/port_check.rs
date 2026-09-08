@@ -114,6 +114,21 @@ mod tests {
         });
         assert!(found, "应能通过系统表找到本测试进程的监听套接字");
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn kill_process_terminates_child() {
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .spawn()
+            .unwrap();
+        kill_process(child.id()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(
+            child.try_wait().unwrap().is_some(),
+            "子进程应已被结束"
+        );
+    }
 }
 
 #[cfg(windows)]
