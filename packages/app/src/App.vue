@@ -182,6 +182,8 @@ button.btn {
   background: var(--primary); color: #fff; border: none;
   padding: 8px 16px; border-radius: var(--radius); cursor: pointer;
   font-size: 14px; font-weight: 500;
+  /* 按钮不换行、不被 flex 压缩（如路径输入行右侧的操作按钮） */
+  white-space: nowrap; flex-shrink: 0;
 }
 button.btn:hover:not(:disabled) { background: var(--primary-hover); }
 button.btn:disabled { opacity: 0.5; cursor: not-allowed; }

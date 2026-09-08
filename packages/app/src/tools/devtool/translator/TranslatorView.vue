@@ -200,7 +200,7 @@ onBeforeUnmount(() => {
   min-height: 36px; border: 1px solid var(--border); border-radius: 5px;
   background: var(--card); color: var(--fg); font-size: 13px;
 }
-.toolbar-btn { padding: 6px 12px; cursor: pointer; }
+.toolbar-btn { padding: 6px 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
 .toolbar-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
 .provider-tab:focus-visible, .toolbar-btn:focus-visible {
   outline: 2px solid var(--primary); outline-offset: 2px;
