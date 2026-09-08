@@ -182,6 +182,8 @@ pub fn run() {
             tools::hosts::hosts_read,
             tools::hosts::hosts_write,
             tools::file_locks::file_locks_check,
+            tools::port_check::port_check_list,
+            tools::port_check::port_check_kill,
             tools::keystore_gen::keystore_check_java,
             tools::keystore_gen::keystore_generate,
             tools::save_file::read_image_file,

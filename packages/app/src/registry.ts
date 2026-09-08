@@ -24,6 +24,14 @@ export const NATIVE_TOOLS: ToolDef[] = [
     component: () => import('./tools/file-locks/FileLocksView.vue'),
   },
   {
+    key: 'port-check',
+    label: '端口占用检查',
+    description: '查看本地 TCP / UDP 端口被哪些进程占用，可强制结束占用进程，排查端口冲突',
+    category: 'devtool',
+    keywords: ['port', 'portage', 'netstat', 'listen', 'occupied', 'kill', 'process', '端口', '端口占用', '占用', '监听', '进程', '杀进程', '端口冲突', '端口号'],
+    component: () => import('./tools/port-check/PortCheckView.vue'),
+  },
+  {
     key: 'env-vars',
     label: '环境变量 / Hosts',
     description: '查看和编辑 Windows 用户/系统环境变量（系统变量需管理员权限）与 hosts 文件，修改后自动广播生效',
