@@ -2,9 +2,9 @@ import { createApp } from 'vue'
 import { setPlatform } from '@sbox/tools-core'
 import '@sbox/tools-core/theme.css'
 import App from './App.vue'
-import router from './router'
-import { setupLogger } from './logger'
-import { tauriPlatform } from './platform-tauri'
+import router from './shell/router'
+import { setupLogger } from './shell/logger'
+import { tauriPlatform } from './platform/platform-tauri'
 
 setupLogger()
 

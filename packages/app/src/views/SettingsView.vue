@@ -2,9 +2,9 @@
 import { onMounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { Box, Github, RefreshCw } from 'lucide-vue-next'
-import { settings, saveSettings } from '../settings'
-import { autostartStatus, bossKeyStatus, setAutostart } from '../system'
-import { useUpdater } from '../useUpdater'
+import { settings, saveSettings } from '../shell/settings'
+import { autostartStatus, bossKeyStatus, setAutostart } from '../shell/system'
+import { useUpdater } from '../shell/useUpdater'
 
 const SETTING_TABS = [
   { key: 'general', label: '通用' },

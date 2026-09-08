@@ -10,10 +10,10 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { UpdaterDialog } from '@while-coder/tauri-updater-vue'
 import { toolNavGroups } from '@sbox/tools-core'
-import { ALL_TOOLS } from './registry'
-import { loadSettings } from './settings'
-import { setupCloseToTray, applyBossKey, watchBossKey, refreshAutostart } from './system'
-import { ensureOverlay } from './tools/screenshot/screenshot'
+import { ALL_TOOLS } from './shell/registry'
+import { loadSettings } from './shell/settings'
+import { setupCloseToTray, applyBossKey, watchBossKey, refreshAutostart } from './shell/system'
+import { ensureOverlay } from './tools/media/screenshot/screenshot'
 
 const route = useRoute()
 const router = useRouter()
