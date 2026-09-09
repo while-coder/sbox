@@ -12,7 +12,6 @@
     "./platform": "./src/platform/index.ts"
   },
   "dependencies": {
-    "@imagemagick/magick-wasm": "^0.0.41",
     "js-yaml": "^5.1.0",
     "jsqr": "^1.4.0",
     "qrcode": "^1.5.4",

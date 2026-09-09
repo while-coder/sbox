@@ -1,4 +1,6 @@
+use base64::Engine;
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 use std::process::{Command, Stdio};
 
 #[derive(Deserialize)]
@@ -234,6 +236,91 @@ fn after_marker(line: &str, markers: &[&str]) -> Option<String> {
     None
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyHashInput {
+    pub path: String,
+    /// 发布密钥散列按别名导出证书，必填。
+    pub alias: String,
+    /// 可选：keystore 密码。经环境变量传递，不出现在进程命令行里。
+    pub store_password: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyHashResult {
+    pub alias: String,
+    /// 发布密钥散列：base64(SHA1(证书 DER))，对应
+    /// `keytool -exportcert | openssl sha1 -binary | openssl base64`（微信开放平台等要求）。
+    pub sha1_base64: String,
+    /// 冒号分隔的 SHA-1 十六进制指纹，便于与 `keytool -list` 输出核对。
+    pub sha1_hex: String,
+}
+
+/// 对应 `keytool -exportcert -alias <alias> -keystore <path>`，取证书 DER 并计算散列。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn keystore_key_hash(input: KeyHashInput) -> Result<KeyHashResult, String> {
+    if input.path.trim().is_empty() {
+        return Err("请先选择 keystore 文件".into());
+    }
+    if !std::path::Path::new(&input.path).exists() {
+        return Err(format!("文件不存在: {}", input.path));
+    }
+    let alias = input.alias.trim();
+    if alias.is_empty() {
+        return Err("请填写要导出证书的别名（alias）".into());
+    }
+
+    let keytool = which::which("keytool")
+        .map_err(|_| "未找到 keytool。请安装 JDK 17+ 后重试。".to_string())?;
+
+    let mut cmd = Command::new(&keytool);
+    // 与 keystore_info_list 一致：强制英文输出，避免中文 Windows 的 GBK 乱码
+    cmd.args([
+        "-J-Duser.language=en",
+        "-J-Duser.country=US",
+        "-exportcert",
+        "-alias",
+        alias,
+        "-keystore",
+        &input.path,
+    ]);
+    if let Some(pass) = input.store_password.as_deref().filter(|s| !s.is_empty()) {
+        cmd.args(["-storepass:env", "KS_STORE_PASS"]).env("KS_STORE_PASS", pass);
+    }
+    // stdout 输出证书 DER 二进制；stdin 置空避免无密码时交互式提问挂起
+    cmd.stdin(Stdio::null());
+
+    let output = cmd
+        .output()
+        .map_err(|e| format!("调用 keytool 失败: {e}"))?;
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let msg = if stderr.trim().is_empty() { stdout.trim() } else { stderr.trim() };
+        if msg.contains("password") || msg.contains("密码") {
+            return Err("keystore 密码错误（或未提供密码）".into());
+        }
+        return Err(format!("keytool 退出码非零:\n{}", msg));
+    }
+
+    key_hash_from_der(alias, &output.stdout)
+}
+
+/// 由证书 DER 计算 base64(SHA1) 与冒号分隔的十六进制指纹。
+fn key_hash_from_der(alias: &str, der: &[u8]) -> Result<KeyHashResult, String> {
+    if der.is_empty() {
+        return Err("keytool 未输出证书内容".into());
+    }
+    let digest: [u8; 20] = Sha1::digest(der).into();
+    let sha1_hex = digest.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":");
+    Ok(KeyHashResult {
+        alias: alias.to_string(),
+        sha1_base64: base64::engine::general_purpose::STANDARD.encode(digest),
+        sha1_hex,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,5 +400,17 @@ Version: 3
         assert_eq!(e.signature_algorithm.as_deref(), Some("SHA384withRSA"));
         assert_eq!(e.key_algorithm.as_deref(), Some("2048 位 RSA 密钥"));
         assert_eq!(e.fingerprint_sha1, "BC:8D:42:65:57:03:74:5D:B2:B7:E2:30:49:C5:2A:47:9B:8F:91:E6");
+    }
+
+    #[test]
+    fn key_hash_matches_expected_digest() {
+        // SHA1(空输入) 的标准值，校验 base64 与十六进制两条输出
+        let r = key_hash_from_der("myapp", b"").unwrap_err();
+        assert_eq!(r, "keytool 未输出证书内容");
+
+        let r = key_hash_from_der("myapp", b"abc").unwrap();
+        assert_eq!(r.sha1_base64, "qZk+NkcGgWq6PiVxeFDCbJzQ2J0=");
+        assert_eq!(r.sha1_hex, "A9:99:3E:36:47:06:81:6A:BA:3E:25:71:78:50:C2:6C:9C:D0:D8:9D");
+        assert_eq!(r.alias, "myapp");
     }
 }

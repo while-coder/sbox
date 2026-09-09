@@ -15,7 +15,6 @@ import { timestampTool } from './tools/devtool/timestamp'
 import { randomGenTool } from './tools/genverify/random-gen'
 import { checksumTool } from './tools/genverify/checksum'
 import { qrcodeTool } from './tools/media/qrcode'
-import { imageConvertTool } from './tools/media/image-convert'
 
 export interface ToolDef {
   /** 唯一 key，同时作为路由路径 /<key> */
@@ -52,7 +51,6 @@ export const WEB_TOOLS: ToolDef[] = [
   randomGenTool,
   checksumTool,
   qrcodeTool,
-  imageConvertTool,
 ]
 
 /** 按分类分组，保持 CATEGORIES 的顺序，空分类省略。 */

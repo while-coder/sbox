@@ -1,5 +1,5 @@
 import { onMounted, ref } from 'vue'
-import { checkJava } from '../tools/genverify/keystore-gen/tauri'
+import { checkJava } from '../tools/genverify/keystore/tauri'
 
 /**
  * 依赖 keytool（JDK）的工具共用：打开页面时检测 keytool 是否存在。

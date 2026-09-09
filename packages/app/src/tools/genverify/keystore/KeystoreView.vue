@@ -3,9 +3,10 @@ import { ref } from 'vue'
 import { useKeytoolCheck } from '../../../shell/use-keytool'
 import KeytoolHint from '../../../shell/KeytoolHint.vue'
 import KeystoreGenPanel from './KeystoreGenPanel.vue'
+import KeystoreHashPanel from './KeystoreHashPanel.vue'
 import KeystoreInfoPanel from './KeystoreInfoPanel.vue'
 
-type Tab = 'info' | 'gen'
+type Tab = 'info' | 'hash' | 'gen'
 
 const tab = ref<Tab>('info')
 const { javaAvailable, javaPath } = useKeytoolCheck()
@@ -22,10 +23,12 @@ const { javaAvailable, javaPath } = useKeytoolCheck()
 
     <div class="tabs">
       <button class="tab" :class="{ active: tab === 'info' }" @click="tab = 'info'">查看指纹</button>
+      <button class="tab" :class="{ active: tab === 'hash' }" @click="tab = 'hash'">发布密钥散列</button>
       <button class="tab" :class="{ active: tab === 'gen' }" @click="tab = 'gen'">生成 Keystore</button>
     </div>
 
     <KeystoreInfoPanel v-if="tab === 'info'" :java-available="javaAvailable" />
+    <KeystoreHashPanel v-else-if="tab === 'hash'" :java-available="javaAvailable" />
     <KeystoreGenPanel v-else-if="tab === 'gen'" :java-available="javaAvailable" />
   </div>
 </template>

@@ -11,8 +11,7 @@ import { fileLocksTool } from '../tools/devtool/file-locks'
 import { portCheckTool } from '../tools/devtool/port-check'
 import { envVarsTool } from '../tools/devtool/env-vars'
 import { translatorTool } from '../tools/devtool/translator'
-import { keystoreGenTool } from '../tools/genverify/keystore-gen'
-import { keystoreInfoTool } from '../tools/genverify/keystore-info'
+import { keystoreTool } from '../tools/genverify/keystore'
 import { sshKeygenTool } from '../tools/genverify/ssh-keygen'
 import { screenshotTool } from '../tools/media/screenshot'
 
@@ -23,8 +22,7 @@ export const NATIVE_TOOLS: ToolDef[] = [
   portCheckTool,
   envVarsTool,
   screenshotTool,
-  keystoreGenTool,
-  keystoreInfoTool,
+  keystoreTool,
   sshKeygenTool,
   translatorTool,
   xiaoaiLoginTool,

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
-import { listKeystore, type KeystoreEntry } from './tauri'
+import { getKeyHash, type KeyHashResult } from './tauri'
 
 const props = defineProps<{ javaAvailable: boolean | null }>()
 
@@ -11,19 +11,17 @@ const storePassword = ref('')
 const showPassword = ref(false)
 const loading = ref(false)
 const error = ref('')
-const result = ref<{ storeType: string | null; entries: KeystoreEntry[] } | null>(null)
+const result = ref<KeyHashResult | null>(null)
 const copiedKey = ref('')
 
 const canSubmit = computed(
-  () => path.value.trim().length > 0 && props.javaAvailable === true && !loading.value,
+  () => path.value.trim().length > 0 && alias.value.trim().length > 0 && props.javaAvailable === true && !loading.value,
 )
 
 /** 展示给用户的等价命令行，方便在别的环境复现 */
 const cmdline = computed(() => {
   if (!path.value.trim()) return ''
-  let cmd = `keytool -list -v -keystore "${path.value.trim()}"`
-  if (alias.value.trim()) cmd += ` -alias "${alias.value.trim()}"`
-  return cmd
+  return `keytool -exportcert -alias "${alias.value.trim() || 'your_alias'}" -keystore "${path.value.trim()}" | openssl sha1 -binary | openssl base64`
 })
 
 async function chooseFile() {
@@ -48,14 +46,11 @@ async function submit() {
   error.value = ''
   result.value = null
   try {
-    result.value = await listKeystore({
+    result.value = await getKeyHash({
       path: path.value.trim(),
-      alias: alias.value.trim() || undefined,
+      alias: alias.value.trim(),
       storePassword: storePassword.value || undefined,
     })
-    if (result.value.entries.length === 0) {
-      error.value = '未解析到任何别名。请检查密码是否正确、文件是否为有效的 keystore。'
-    }
   } catch (e: any) {
     error.value = String(e?.message || e)
   } finally {
@@ -77,9 +72,9 @@ async function copyValue(key: string, value: string) {
 </script>
 
 <template>
-  <div class="ksi">
+  <div class="ksh">
     <p class="lead">
-      读取 keystore 文件中的证书信息与指纹。Android 应用在微信开放平台、高德、Google Play 等平台注册时需要填 SHA-1。
+      计算发布密钥散列：对指定别名的证书做 SHA-1 再 base64 编码。微信开放平台等平台「应用签名」一栏要求填的就是它（无需手动执行 keytool / openssl 管道命令）。
     </p>
 
     <section class="card">
@@ -90,8 +85,8 @@ async function copyValue(key: string, value: string) {
       </div>
 
       <div class="field-row">
-        <label class="field-label">Alias（可选）</label>
-        <input v-model="alias" class="input" placeholder="留空列出所有别名" />
+        <label class="field-label">Alias</label>
+        <input v-model="alias" class="input" placeholder="签名密钥的别名（必填）" />
       </div>
 
       <div class="field-row">
@@ -107,7 +102,7 @@ async function copyValue(key: string, value: string) {
       </div>
 
       <div class="actions">
-        <button class="btn" :disabled="!canSubmit" @click="submit">{{ loading ? '正在读取…' : '读取指纹' }}</button>
+        <button class="btn" :disabled="!canSubmit" @click="submit">{{ loading ? '正在计算…' : '计算散列' }}</button>
       </div>
 
       <p v-if="cmdline" class="hint cmdline">
@@ -120,58 +115,32 @@ async function copyValue(key: string, value: string) {
     </section>
 
     <section v-if="result" class="card">
-      <div class="status success">
-        解析到 {{ result.entries.length }} 个别名<template v-if="result.storeType">（{{ result.storeType }}）</template>
+      <div class="status success">别名「{{ result.alias }}」的发布密钥散列</div>
+
+      <div class="fp-row">
+        <span class="fp-label">散列</span>
+        <code class="fp-value">{{ result.sha1Base64 }}</code>
+        <button class="copy-btn" @click="copyValue('hash', result.sha1Base64)">
+          {{ copiedKey === 'hash' ? '已复制 ✓' : '复制' }}
+        </button>
       </div>
-
-      <div v-for="(entry, i) in result.entries" :key="entry.alias" class="entry">
-        <h3 class="entry-title">{{ entry.alias }}<span v-if="entry.entryType" class="entry-type">{{ entry.entryType }}</span></h3>
-
-        <div class="meta">
-          <div v-if="entry.owner" class="meta-row"><span class="meta-label">所有者</span><span class="meta-value">{{ entry.owner }}</span></div>
-          <div v-if="entry.issuer" class="meta-row"><span class="meta-label">发布者</span><span class="meta-value">{{ entry.issuer }}</span></div>
-          <div v-if="entry.serialNumber" class="meta-row"><span class="meta-label">序列号</span><span class="meta-value mono">{{ entry.serialNumber }}</span></div>
-          <div v-if="entry.creationDate" class="meta-row"><span class="meta-label">创建日期</span><span class="meta-value">{{ entry.creationDate }}</span></div>
-          <div v-if="entry.validFrom || entry.validUntil" class="meta-row">
-            <span class="meta-label">有效期</span>
-            <span class="meta-value">{{ entry.validFrom }} ~ {{ entry.validUntil ?? '' }}</span>
-          </div>
-          <div v-if="entry.signatureAlgorithm" class="meta-row"><span class="meta-label">签名算法</span><span class="meta-value mono">{{ entry.signatureAlgorithm }}</span></div>
-          <div v-if="entry.keyAlgorithm" class="meta-row"><span class="meta-label">密钥</span><span class="meta-value">{{ entry.keyAlgorithm }}</span></div>
-        </div>
-
-        <div v-if="entry.fingerprintSha1" class="fp-row">
-          <span class="fp-label">SHA-1</span>
-          <code class="fp-value">{{ entry.fingerprintSha1 }}</code>
-          <button class="copy-btn" @click="copyValue(`sha1-${i}`, entry.fingerprintSha1)">
-            {{ copiedKey === `sha1-${i}` ? '已复制 ✓' : '复制' }}
-          </button>
-        </div>
-        <div v-if="entry.fingerprintSha256" class="fp-row">
-          <span class="fp-label">SHA-256</span>
-          <code class="fp-value">{{ entry.fingerprintSha256 }}</code>
-          <button class="copy-btn" @click="copyValue(`sha256-${i}`, entry.fingerprintSha256)">
-            {{ copiedKey === `sha256-${i}` ? '已复制 ✓' : '复制' }}
-          </button>
-        </div>
-        <div v-if="entry.fingerprintMd5" class="fp-row">
-          <span class="fp-label">MD5</span>
-          <code class="fp-value">{{ entry.fingerprintMd5 }}</code>
-          <button class="copy-btn" @click="copyValue(`md5-${i}`, entry.fingerprintMd5)">
-            {{ copiedKey === `md5-${i}` ? '已复制 ✓' : '复制' }}
-          </button>
-        </div>
+      <div class="fp-row">
+        <span class="fp-label">SHA-1</span>
+        <code class="fp-value">{{ result.sha1Hex }}</code>
+        <button class="copy-btn" @click="copyValue('sha1', result.sha1Hex)">
+          {{ copiedKey === 'sha1' ? '已复制 ✓' : '复制' }}
+        </button>
       </div>
 
       <p class="hint">
-        平台要求的格式可能不同：多数平台直接粘贴上面带冒号的值即可；要求「去掉冒号」时，粘贴前删除冒号即可（字母大小写一般不敏感，按要求保留）。
+        「散列」即 base64(SHA1(证书))，可直接粘贴到平台后台；「SHA-1」为同一证书的十六进制指纹，可与「查看指纹」标签页的输出互相核对。
       </p>
     </section>
   </div>
 </template>
 
 <style scoped>
-.ksi { max-width: 720px; margin: 0 auto; }
+.ksh { max-width: 720px; margin: 0 auto; }
 .lead { color: var(--fg-muted); margin-bottom: 16px; }
 .hint { font-size: 12px; color: var(--fg-muted); margin: 8px 0 0; }
 .hint.cmdline { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -207,28 +176,6 @@ async function copyValue(key: string, value: string) {
 .btn-outline:hover { background: var(--border); }
 
 .actions { display: flex; gap: 12px; margin-top: 8px; }
-
-.entry {
-  border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 12px 14px; margin-bottom: 12px;
-}
-.entry-title {
-  font-size: 14px; font-weight: 600; margin: 0 0 8px;
-  display: flex; align-items: center; gap: 8px;
-}
-.entry-type {
-  font-size: 11px; font-weight: 400; color: var(--fg-muted);
-  background: var(--bg); border: 1px solid var(--border);
-  border-radius: 4px; padding: 1px 7px;
-}
-.meta {
-  margin-bottom: 8px; padding-bottom: 8px;
-  border-bottom: 1px dashed var(--border);
-}
-.meta-row { display: flex; gap: 10px; font-size: 12px; margin-bottom: 4px; }
-.meta-label { flex: 0 0 60px; color: var(--fg-muted); }
-.meta-value { color: var(--fg-muted); word-break: break-all; }
-.meta-value.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 
 .fp-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .fp-label {

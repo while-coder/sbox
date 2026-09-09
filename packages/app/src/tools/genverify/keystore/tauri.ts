@@ -70,3 +70,22 @@ export interface ListInput {
 export async function listKeystore(input: ListInput): Promise<KeystoreListResult> {
   return await invoke('keystore_info_list', { input })
 }
+
+export interface KeyHashInput {
+  path: string
+  alias: string
+  storePassword?: string
+}
+
+export interface KeyHashResult {
+  alias: string
+  /** base64(SHA1(证书 DER))，即发布密钥散列 */
+  sha1Base64: string
+  /** 冒号分隔的 SHA-1 十六进制指纹，便于核对 */
+  sha1Hex: string
+}
+
+/** 对应 keytool -exportcert | openssl sha1 -binary | openssl base64。 */
+export async function getKeyHash(input: KeyHashInput): Promise<KeyHashResult> {
+  return await invoke('keystore_key_hash', { input })
+}

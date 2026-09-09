@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch, type WatchStopHandle } fr
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   AppWindow, Braces, Clock3, FileKey2, FileSearch2, FolderKey, Hash,
-  Home, Image, KeyRound, Menu, MonitorUp, QrCode, ScanText, Settings, ShieldCheck,
+  Home, KeyRound, Menu, MonitorUp, QrCode, ScanText, Settings, ShieldCheck,
   Shuffle, X, type LucideIcon,
 } from 'lucide-vue-next'
 import { listen } from '@tauri-apps/api/event'
@@ -28,7 +28,7 @@ const toolIcons: Record<string, LucideIcon> = {
   'ssh-keygen': KeyRound, translator: ScanText, 'xiaoai-login': AppWindow,
   'gdrive-login': AppWindow, codec: Braces, json: Braces, 'json-convert': Shuffle,
   jwt: ShieldCheck, timestamp: Clock3, 'random-gen': Shuffle, checksum: Hash,
-  qrcode: QrCode, 'image-convert': Image,
+  qrcode: QrCode,
 }
 
 function iconFor(toolKey: string): LucideIcon {

@@ -64,7 +64,7 @@ importers:
         version: 2.10.1
       '@while-coder/tauri-updater-vue':
         specifier: git+https://github.com/while-coder/tauri-updater-kit.git#main&path:packages/vue
-        version: https://codeload.github.com/while-coder/tauri-updater-kit/tar.gz/46cc01c09c795e048ce0c460586984841b705ce7#path:packages/vue(@tauri-apps/api@2.11.1)(@tauri-apps/plugin-process@2.3.1)(@tauri-apps/plugin-updater@2.10.1)(vue@3.5.39(typescript@6.0.3))
+        version: https://codeload.github.com/while-coder/tauri-updater-kit/tar.gz/9728f9a9eb6b9ed6eb5620cb42e34bbce1100fb6#path:packages/vue(@tauri-apps/api@2.11.1)(@tauri-apps/plugin-process@2.3.1)(@tauri-apps/plugin-updater@2.10.1)(vue@3.5.39(typescript@6.0.3))
       jsqr:
         specifier: ^1.4.0
         version: 1.4.0
@@ -93,9 +93,6 @@ importers:
 
   packages/tools-core:
     dependencies:
-      '@imagemagick/magick-wasm':
-        specifier: ^0.0.41
-        version: 0.0.41
       js-yaml:
         specifier: ^5.1.0
         version: 5.1.0
@@ -588,9 +585,6 @@ packages:
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
-
-  '@imagemagick/magick-wasm@0.0.41':
-    resolution: {integrity: sha512-ywIISf4/8/6k9lLfHUIE/uGuZCJfDG+NEcHJ7OHvzr2w+uLCoK5cIBsp6KlpQfq/EppYiNM+NqKXFiUSbJvHZA==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1136,8 +1130,8 @@ packages:
   '@vueuse/shared@12.8.2':
     resolution: {integrity: sha512-dznP38YzxZoNloI0qpEfpkms8knDtaoQ6Y/sfS0L7Yki4zh40LFHEhur0odJC6xTHG5dxWVPiUWBXn+wCG2s5w==}
 
-  '@while-coder/tauri-updater-vue@https://codeload.github.com/while-coder/tauri-updater-kit/tar.gz/46cc01c09c795e048ce0c460586984841b705ce7#path:packages/vue':
-    resolution: {path: packages/vue, tarball: https://codeload.github.com/while-coder/tauri-updater-kit/tar.gz/46cc01c09c795e048ce0c460586984841b705ce7}
+  '@while-coder/tauri-updater-vue@https://codeload.github.com/while-coder/tauri-updater-kit/tar.gz/9728f9a9eb6b9ed6eb5620cb42e34bbce1100fb6#path:packages/vue':
+    resolution: {path: packages/vue, tarball: https://codeload.github.com/while-coder/tauri-updater-kit/tar.gz/9728f9a9eb6b9ed6eb5620cb42e34bbce1100fb6}
     version: 0.0.0
     peerDependencies:
       '@tauri-apps/api': ^2
@@ -2169,8 +2163,6 @@ snapshots:
 
   '@iconify/types@2.0.0': {}
 
-  '@imagemagick/magick-wasm@0.0.41': {}
-
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -2615,7 +2607,7 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@while-coder/tauri-updater-vue@https://codeload.github.com/while-coder/tauri-updater-kit/tar.gz/46cc01c09c795e048ce0c460586984841b705ce7#path:packages/vue(@tauri-apps/api@2.11.1)(@tauri-apps/plugin-process@2.3.1)(@tauri-apps/plugin-updater@2.10.1)(vue@3.5.39(typescript@6.0.3))':
+  '@while-coder/tauri-updater-vue@https://codeload.github.com/while-coder/tauri-updater-kit/tar.gz/9728f9a9eb6b9ed6eb5620cb42e34bbce1100fb6#path:packages/vue(@tauri-apps/api@2.11.1)(@tauri-apps/plugin-process@2.3.1)(@tauri-apps/plugin-updater@2.10.1)(vue@3.5.39(typescript@6.0.3))':
     dependencies:
       '@tauri-apps/api': 2.11.1
       '@tauri-apps/plugin-process': 2.3.1
