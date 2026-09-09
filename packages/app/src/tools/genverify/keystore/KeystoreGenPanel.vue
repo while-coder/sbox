@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { ref, computed } from 'vue'
 import { save } from '@tauri-apps/plugin-dialog'
-import { checkJava, generateKeystore, type GenerateResult } from './tauri'
+import { generateKeystore, type GenerateResult } from './tauri'
+
+const props = defineProps<{ javaAvailable: boolean | null }>()
 
 type Phase = 'idle' | 'generating' | 'done'
 
 const phase = ref<Phase>('idle')
 const error = ref('')
-const javaAvailable = ref<boolean | null>(null)
-const javaPath = ref('')
 
 const alias = ref('')
 const storePassword = ref('')
@@ -47,7 +47,7 @@ const keyPasswordMismatch = computed(
 
 const canSubmit = computed(
   () =>
-    javaAvailable.value === true &&
+    props.javaAvailable === true &&
     alias.value.trim() &&
     storePassword.value.length >= 6 &&
     storePassword.value === storePasswordConfirm.value &&
@@ -65,17 +65,6 @@ const secretBlock = computed(() => {
     `ANDROID_KEY_ALIAS=${alias.value.trim()}`,
     `ANDROID_KEY_PASSWORD=${keyPassword.value}`,
   ].join('\n')
-})
-
-onMounted(async () => {
-  try {
-    const r = await checkJava()
-    javaAvailable.value = r.available
-    javaPath.value = r.path ?? ''
-  } catch (e: any) {
-    javaAvailable.value = false
-    error.value = String(e?.message || e)
-  }
 })
 
 async function submit() {
@@ -142,16 +131,8 @@ function reset() {
 
 <template>
   <div class="ks">
-    <h2>Keystore 生成</h2>
     <p class="lead">
-      生成 Android APK 签名用的 keystore（PKCS12 格式）。所有输入仅在本机运行 <code>keytool</code> 时使用，不会上传到任何服务器。
-    </p>
-
-    <p v-if="javaAvailable === false" class="warn">
-      未检测到 <code>keytool</code>。请先安装 JDK 17+（推荐 <a href="https://adoptium.net/" target="_blank" rel="noopener">Adoptium Temurin</a>），然后重启应用。
-    </p>
-    <p v-else-if="javaAvailable === true" class="hint">
-      检测到 keytool: <code>{{ javaPath }}</code>
+      生成 Android APK 签名用的 keystore（PKCS12 格式），并给出 GitHub Actions 所需的 4 个 secret。
     </p>
 
     <section v-if="phase === 'idle'" class="card">

@@ -11,7 +11,10 @@ pub(crate) fn show_main(app: &tauri::AppHandle) {
     log::debug!("收到主窗口唤醒请求");
     let task_app = app.clone();
     if let Err(error) = app.run_on_main_thread(move || {
-        let window = match task_app.get_webview_window("main") {
+        // 主窗口可能挂载了翻译等子 webview，此时 get_webview_window 会因
+        // 窗口内存在多 webview 而返回 None，必须用 get_window 拿窗口句柄；
+        // 只有窗口彻底不存在时才走重建。
+        let window = match task_app.get_window("main") {
             Some(window) => {
                 log::debug!("复用现有 main 窗口");
                 window
@@ -29,7 +32,17 @@ pub(crate) fn show_main(app: &tauri::AppHandle) {
                 .resizable(true)
                 .build()
                 {
-                    Ok(window) => window,
+                    Ok(window) => {
+                        // 新建窗口不存在最小化状态，直接显示并聚焦即可。
+                        if let Err(error) = window.show() {
+                            log::error!("唤醒主窗口失败（show）：{error}");
+                        }
+                        if let Err(error) = window.set_focus() {
+                            log::error!("唤醒主窗口失败（set_focus）：{error}");
+                        }
+                        log::info!("主窗口已重建并唤醒");
+                        return;
+                    }
                     Err(error) => {
                         log::error!("唤醒主窗口失败（recreate）：{error}");
                         return;

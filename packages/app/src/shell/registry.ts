@@ -12,6 +12,7 @@ import { portCheckTool } from '../tools/devtool/port-check'
 import { envVarsTool } from '../tools/devtool/env-vars'
 import { translatorTool } from '../tools/devtool/translator'
 import { keystoreGenTool } from '../tools/genverify/keystore-gen'
+import { keystoreInfoTool } from '../tools/genverify/keystore-info'
 import { sshKeygenTool } from '../tools/genverify/ssh-keygen'
 import { screenshotTool } from '../tools/media/screenshot'
 
@@ -23,6 +24,7 @@ export const NATIVE_TOOLS: ToolDef[] = [
   envVarsTool,
   screenshotTool,
   keystoreGenTool,
+  keystoreInfoTool,
   sshKeygenTool,
   translatorTool,
   xiaoaiLoginTool,

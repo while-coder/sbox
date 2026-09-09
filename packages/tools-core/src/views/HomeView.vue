@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { toolNavGroups, searchTools, CATEGORIES, type ToolDef } from '../registry'
 
-/** 由宿主传入完整工具列表（web 为 9 个，桌面为 15 个）。 */
+/** 由宿主传入完整工具列表（web 为 9 个，桌面为 16 个）。 */
 const props = defineProps<{ tools: ToolDef[] }>()
 
 const router = useRouter()

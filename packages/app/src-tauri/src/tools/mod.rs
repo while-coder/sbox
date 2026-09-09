@@ -4,6 +4,7 @@ pub mod external;
 pub mod gdrive_login;
 pub mod hosts;
 pub mod keystore_gen;
+pub mod keystore_info;
 pub mod port_check;
 pub mod file_locks;
 pub mod save_file;

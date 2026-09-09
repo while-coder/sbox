@@ -67,6 +67,7 @@ pub fn run() {
             tools::port_check::port_check_kill,
             tools::keystore_gen::keystore_check_java,
             tools::keystore_gen::keystore_generate,
+            tools::keystore_info::keystore_info_list,
             tools::save_file::read_image_file,
             tools::save_file::save_base64_file,
             tools::screenshot::screenshot_clear,
