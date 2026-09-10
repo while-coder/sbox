@@ -10,6 +10,7 @@ import {
   type SummaryInfo,
   type MemoryModule,
   type MemorySlot,
+  type DriveInfo,
 } from './tauri'
 
 /** 瀑布式段定义：label 为卡片标题，key 对应后端采集段（publicIp 走独立接口）。 */
@@ -69,6 +70,16 @@ function moduleDetail(module: MemoryModule): string {
     module.partNumber,
     module.configuredSpeedMhz || module.speedMhz ? `${module.configuredSpeedMhz || module.speedMhz} MHz` : '',
   )
+}
+
+/** 驱动器运行状况一行摘要（SMART 数据，拿不到的项自动省略，全部缺失时为空串）。 */
+function driveHealth(drive: DriveInfo): string {
+  const parts: string[] = []
+  if (drive.healthStatus) parts.push(drive.healthStatus)
+  if (drive.lifePercent != null) parts.push(`估计剩余生命 ${drive.lifePercent}%`)
+  if (drive.sparePercent != null) parts.push(`可用备用 ${drive.sparePercent}%`)
+  if (drive.temperatureC != null) parts.push(`${drive.temperatureC}℃`)
+  return parts.join('，')
 }
 
 function sectionData(key: SectionKeyAll): SectionData | PublicIpInfo | undefined {
@@ -229,7 +240,8 @@ function buildReport(): string {
     lines.push('', '【物理磁盘】')
     if (!storage.drives.length) lines.push('未识别到物理磁盘')
     for (const drive of storage.drives) {
-      lines.push(`${drive.model}：${formatBytes(drive.sizeBytes)}，${join(drive.interface, drive.mediaType)}${drive.partitionCount ? `，${drive.partitionCount} 个分区` : ''}`)
+      const health = driveHealth(drive)
+      lines.push(`${drive.model}：${formatBytes(drive.sizeBytes)}，${join(drive.interface, drive.mediaType)}${health ? `，${health}` : ''}${drive.partitionCount ? `，${drive.partitionCount} 个分区` : ''}`)
     }
     lines.push('', '【存储卷】')
     for (const volume of storage.volumes) {
@@ -448,6 +460,7 @@ async function copyReport() {
               <dl>
                 <div><dt>容量</dt><dd>{{ formatBytes(drive.sizeBytes) }}</dd></div>
                 <div><dt>接口 / 类型</dt><dd>{{ join(drive.interface, drive.mediaType) }}</dd></div>
+                <div v-if="driveHealth(drive)"><dt>驱动器运行状况</dt><dd>{{ driveHealth(drive) }}</dd></div>
                 <div v-if="drive.partitionCount"><dt>分区数</dt><dd>{{ drive.partitionCount }}</dd></div>
                 <div><dt>序列号</dt><dd><code>{{ drive.serial || '—' }}</code></dd></div>
               </dl>

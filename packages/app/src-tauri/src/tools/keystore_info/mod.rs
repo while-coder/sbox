@@ -1,13 +1,22 @@
-use base64::Engine;
+//! 签名文件详情：统一入口，按文件类型分发。
+//! - keystore（.jks/.keystore/.p12）：调用 keytool -list 解析所有别名的证书信息
+//! - 裸证书（.der/.pem/.crt/.cer/.p7b）：纯 Rust 解析（x509-parser），无需 JDK
+//! - APK/AAB：解析 APK Signing Block v2/v3/v3.1，提取线上实际签名证书
+//!
+//! 所有类型都返回元信息 + MD5/SHA-1/SHA-256 指纹 + 密钥散列（base64(SHA1)，
+//! 即 Facebook「Android Key Hashes」/微信「应用签名」要求填的值）。
+
+mod apk_signing_block;
+mod cert_meta;
+
 use serde::{Deserialize, Serialize};
-use sha1::{Digest, Sha1};
 use std::process::{Command, Stdio};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ListInput {
+pub struct FileInfoInput {
     pub path: String,
-    /// 可选：只查这个别名。留空则列出所有别名。
+    /// 可选：只查这个别名（仅 keystore 有效）。留空则列出所有别名。
     pub alias: Option<String>,
     /// 可选：keystore 密码。留空则不带 -storepass 调用（会因密码校验失败而报错，不会挂起）。
     pub store_password: Option<String>,
@@ -29,26 +38,116 @@ pub struct KeystoreEntry {
     pub fingerprint_md5: String,
     pub fingerprint_sha1: String,
     pub fingerprint_sha256: String,
+    /// 密钥散列：base64(SHA1(证书 DER))。keystore 分支由 SHA-1 指纹换算，证书/APK 分支直接计算。
+    pub sha1_base64: Option<String>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ListResult {
+pub struct FileInfoResult {
+    /// 文件类型：keystore / cert / apk
+    pub kind: String,
     pub path: String,
     pub store_type: Option<String>,
     pub entries: Vec<KeystoreEntry>,
 }
 
-/// 对应 `keytool -list -v -keystore <path> [-alias <alias>]`，解析所有别名的证书指纹。
-#[tauri::command(rename_all = "camelCase")]
-pub async fn keystore_info_list(input: ListInput) -> Result<ListResult, String> {
-    if input.path.trim().is_empty() {
-        return Err("请先选择 keystore 文件".into());
+#[derive(Debug, PartialEq)]
+enum FileKind {
+    Keystore,
+    Cert,
+    ApkBundle,
+}
+
+fn classify(path: &str) -> FileKind {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .map(|e| e.to_ascii_lowercase().to_string_lossy().into_owned());
+    match ext.as_deref() {
+        Some("apk") | Some("aab") => FileKind::ApkBundle,
+        Some("der") | Some("pem") | Some("crt") | Some("cer") | Some("p7b") | Some("p7c") => FileKind::Cert,
+        _ => FileKind::Keystore,
     }
-    if !std::path::Path::new(&input.path).exists() {
+}
+
+/// 统一入口：识别文件类型并返回证书详情。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn keystore_file_info(input: FileInfoInput) -> Result<FileInfoResult, String> {
+    if input.path.trim().is_empty() {
+        return Err("请先选择文件".into());
+    }
+    let path = std::path::Path::new(&input.path);
+    if !path.exists() {
         return Err(format!("文件不存在: {}", input.path));
     }
+    match classify(&input.path) {
+        FileKind::ApkBundle => {
+            let data = std::fs::read(path).map_err(|e| format!("读取文件失败: {e}"))?;
+            let (scheme, certs) = apk_signing_block::extract_certificates(&data)?;
+            let entries = certs
+                .iter()
+                .enumerate()
+                .map(|(i, der)| {
+                    let alias = if certs.len() > 1 { format!("signer {}", i + 1) } else { file_stem(path) };
+                    cert_meta::der_to_entry(&alias, &format!("APK {scheme} 签名"), der)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(FileInfoResult {
+                kind: "apk".into(),
+                path: input.path,
+                store_type: Some(format!("APK Signing Block ({scheme})")),
+                entries,
+            })
+        }
+        FileKind::Cert => {
+            let certs = cert_meta::read_certs_from_file(path)?;
+            let entries = certs
+                .iter()
+                .enumerate()
+                .map(|(i, der)| {
+                    let stem = file_stem(path);
+                    let alias = if certs.len() > 1 { format!("{stem} #{}", i + 1) } else { stem };
+                    cert_meta::der_to_entry(&alias, "X.509 证书", der)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let store_type = if certs.len() > 1 {
+                format!("X.509 证书链（{} 张）", certs.len())
+            } else {
+                "X.509 证书".into()
+            };
+            Ok(FileInfoResult { kind: "cert".into(), path: input.path, store_type: Some(store_type), entries })
+        }
+        FileKind::Keystore => {
+            let mut result = keystore_list_via_keytool(&input, path)?;
+            // 由 SHA-1 指纹换算密钥散列，无需再调一次 keytool -exportcert
+            for entry in &mut result.entries {
+                if !entry.fingerprint_sha1.is_empty() {
+                    entry.sha1_base64 = cert_meta::sha1_base64_from_hex(&entry.fingerprint_sha1);
+                }
+            }
+            Ok(FileInfoResult {
+                kind: "keystore".into(),
+                path: input.path,
+                store_type: result.store_type,
+                entries: result.entries,
+            })
+        }
+    }
+}
 
+fn file_stem(path: &std::path::Path) -> String {
+    path.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "证书".into())
+}
+
+struct ListResult {
+    store_type: Option<String>,
+    entries: Vec<KeystoreEntry>,
+}
+
+/// 对应 `keytool -list -v -keystore <path> [-alias <alias>]`，解析所有别名的证书指纹。
+fn keystore_list_via_keytool(input: &FileInfoInput, path: &std::path::Path) -> Result<ListResult, String> {
     let keytool = which::which("keytool")
         .map_err(|_| "未找到 keytool。请安装 JDK 17+ 后重试。".to_string())?;
 
@@ -61,7 +160,7 @@ pub async fn keystore_info_list(input: ListInput) -> Result<ListResult, String> 
         "-list",
         "-v",
         "-keystore",
-        &input.path,
+        path.to_string_lossy().as_ref(),
     ]);
     if let Some(alias) = input.alias.as_deref().filter(|s| !s.trim().is_empty()) {
         cmd.args(["-alias", alias.trim()]);
@@ -74,9 +173,7 @@ pub async fn keystore_info_list(input: ListInput) -> Result<ListResult, String> 
     // 无密码时避免 keytool 交互式提问挂起：stdin 直接置空，读到 EOF 即报错退出
     cmd.stdin(Stdio::null());
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("调用 keytool 失败: {e}"))?;
+    let output = crate::utils::command::run(&mut cmd).map_err(|e| format!("调用 keytool 失败: {e}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -87,11 +184,11 @@ pub async fn keystore_info_list(input: ListInput) -> Result<ListResult, String> 
         return Err(format!("keytool 退出码非零:\n{}", msg));
     }
 
-    Ok(parse_keytool_list(&input.path, &stdout))
+    Ok(parse_keytool_list(&stdout))
 }
 
 /// 解析 `keytool -list -v` 输出，兼容中文与英文 locale。
-fn parse_keytool_list(path: &str, text: &str) -> ListResult {
+fn parse_keytool_list(text: &str) -> ListResult {
     let mut entries: Vec<KeystoreEntry> = Vec::new();
 
     for line in text.lines() {
@@ -114,6 +211,7 @@ fn parse_keytool_list(path: &str, text: &str) -> ListResult {
                 fingerprint_md5: String::new(),
                 fingerprint_sha1: String::new(),
                 fingerprint_sha256: String::new(),
+                sha1_base64: None,
             });
             continue;
         }
@@ -202,7 +300,6 @@ fn parse_keytool_list(path: &str, text: &str) -> ListResult {
         .find_map(|l| after_marker(l.trim(), &["密钥库类型", "Keystore type"]));
 
     ListResult {
-        path: path.to_string(),
         store_type,
         entries,
     }
@@ -234,91 +331,6 @@ fn after_marker(line: &str, markers: &[&str]) -> Option<String> {
         }
     }
     None
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KeyHashInput {
-    pub path: String,
-    /// 发布密钥散列按别名导出证书，必填。
-    pub alias: String,
-    /// 可选：keystore 密码。经环境变量传递，不出现在进程命令行里。
-    pub store_password: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KeyHashResult {
-    pub alias: String,
-    /// 发布密钥散列：base64(SHA1(证书 DER))，对应
-    /// `keytool -exportcert | openssl sha1 -binary | openssl base64`（微信开放平台等要求）。
-    pub sha1_base64: String,
-    /// 冒号分隔的 SHA-1 十六进制指纹，便于与 `keytool -list` 输出核对。
-    pub sha1_hex: String,
-}
-
-/// 对应 `keytool -exportcert -alias <alias> -keystore <path>`，取证书 DER 并计算散列。
-#[tauri::command(rename_all = "camelCase")]
-pub async fn keystore_key_hash(input: KeyHashInput) -> Result<KeyHashResult, String> {
-    if input.path.trim().is_empty() {
-        return Err("请先选择 keystore 文件".into());
-    }
-    if !std::path::Path::new(&input.path).exists() {
-        return Err(format!("文件不存在: {}", input.path));
-    }
-    let alias = input.alias.trim();
-    if alias.is_empty() {
-        return Err("请填写要导出证书的别名（alias）".into());
-    }
-
-    let keytool = which::which("keytool")
-        .map_err(|_| "未找到 keytool。请安装 JDK 17+ 后重试。".to_string())?;
-
-    let mut cmd = Command::new(&keytool);
-    // 与 keystore_info_list 一致：强制英文输出，避免中文 Windows 的 GBK 乱码
-    cmd.args([
-        "-J-Duser.language=en",
-        "-J-Duser.country=US",
-        "-exportcert",
-        "-alias",
-        alias,
-        "-keystore",
-        &input.path,
-    ]);
-    if let Some(pass) = input.store_password.as_deref().filter(|s| !s.is_empty()) {
-        cmd.args(["-storepass:env", "KS_STORE_PASS"]).env("KS_STORE_PASS", pass);
-    }
-    // stdout 输出证书 DER 二进制；stdin 置空避免无密码时交互式提问挂起
-    cmd.stdin(Stdio::null());
-
-    let output = cmd
-        .output()
-        .map_err(|e| format!("调用 keytool 失败: {e}"))?;
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let msg = if stderr.trim().is_empty() { stdout.trim() } else { stderr.trim() };
-        if msg.contains("password") || msg.contains("密码") {
-            return Err("keystore 密码错误（或未提供密码）".into());
-        }
-        return Err(format!("keytool 退出码非零:\n{}", msg));
-    }
-
-    key_hash_from_der(alias, &output.stdout)
-}
-
-/// 由证书 DER 计算 base64(SHA1) 与冒号分隔的十六进制指纹。
-fn key_hash_from_der(alias: &str, der: &[u8]) -> Result<KeyHashResult, String> {
-    if der.is_empty() {
-        return Err("keytool 未输出证书内容".into());
-    }
-    let digest: [u8; 20] = Sha1::digest(der).into();
-    let sha1_hex = digest.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":");
-    Ok(KeyHashResult {
-        alias: alias.to_string(),
-        sha1_base64: base64::engine::general_purpose::STANDARD.encode(digest),
-        sha1_hex,
-    })
 }
 
 #[cfg(test)]
@@ -366,7 +378,7 @@ Version: 3
 
     #[test]
     fn parse_english_output() {
-        let r = parse_keytool_list("/tmp/a.jks", SAMPLE_EN);
+        let r = parse_keytool_list(SAMPLE_EN);
         assert_eq!(r.store_type.as_deref(), Some("PKCS12"));
         assert_eq!(r.entries.len(), 1);
         let e = &r.entries[0];
@@ -383,11 +395,12 @@ Version: 3
         assert_eq!(e.fingerprint_sha1, "BC:8D:42:65:57:03:74:5D:B2:B7:E2:30:49:C5:2A:47:9B:8F:91:E6");
         assert_eq!(e.fingerprint_sha256, "24:BC:D7:32:6A:10:21:7C:21:7A:D5:92:C1:7C:12:1C:A3:A8:6A:AB:91:7B:54:46:81:0B:B4:DF:ED:87:BA:85");
         assert!(e.fingerprint_md5.is_empty()); // JDK 21 默认不再显示 MD5
+        assert!(e.sha1_base64.is_none()); // 由命令层统一换算
     }
 
     #[test]
     fn parse_chinese_output() {
-        let r = parse_keytool_list("/tmp/a.jks", SAMPLE_ZH);
+        let r = parse_keytool_list(SAMPLE_ZH);
         assert_eq!(r.store_type.as_deref(), Some("PKCS12"));
         assert_eq!(r.entries.len(), 1);
         let e = &r.entries[0];
@@ -403,14 +416,18 @@ Version: 3
     }
 
     #[test]
-    fn key_hash_matches_expected_digest() {
-        // SHA1(空输入) 的标准值，校验 base64 与十六进制两条输出
-        let r = key_hash_from_der("myapp", b"").unwrap_err();
-        assert_eq!(r, "keytool 未输出证书内容");
-
-        let r = key_hash_from_der("myapp", b"abc").unwrap();
-        assert_eq!(r.sha1_base64, "qZk+NkcGgWq6PiVxeFDCbJzQ2J0=");
-        assert_eq!(r.sha1_hex, "A9:99:3E:36:47:06:81:6A:BA:3E:25:71:78:50:C2:6C:9C:D0:D8:9D");
-        assert_eq!(r.alias, "myapp");
+    fn classify_by_extension() {
+        assert_eq!(classify("a/b.jks"), FileKind::Keystore);
+        assert_eq!(classify("a/b.keystore"), FileKind::Keystore);
+        assert_eq!(classify("a/b.p12"), FileKind::Keystore);
+        assert_eq!(classify("a/b"), FileKind::Keystore); // 无扩展名按 keystore 处理
+        assert_eq!(classify("a/b.APK"), FileKind::ApkBundle);
+        assert_eq!(classify("a/b.aab"), FileKind::ApkBundle);
+        assert_eq!(classify("a/b.der"), FileKind::Cert);
+        assert_eq!(classify("a/b.PEM"), FileKind::Cert);
+        assert_eq!(classify("a/b.crt"), FileKind::Cert);
+        assert_eq!(classify("a/b.cer"), FileKind::Cert);
+        assert_eq!(classify("a/b.p7b"), FileKind::Cert);
+        assert_eq!(classify("a/b.p7c"), FileKind::Cert);
     }
 }

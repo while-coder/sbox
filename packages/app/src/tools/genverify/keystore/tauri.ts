@@ -52,40 +52,30 @@ export interface KeystoreEntry {
   fingerprintMd5: string
   fingerprintSha1: string
   fingerprintSha256: string
+  /** 密钥散列：base64(SHA1(证书 DER))，即 Facebook「Android Key Hashes」/微信「应用签名」 */
+  sha1Base64: string | null
 }
 
-export interface KeystoreListResult {
+export interface FileInfoInput {
+  path: string
+  /** 仅 keystore 有效：留空列出所有别名 */
+  alias?: string
+  storePassword?: string
+}
+
+export interface FileInfoResult {
+  /** 文件类型：keystore / cert / apk */
+  kind: 'keystore' | 'cert' | 'apk'
   path: string
   storeType: string | null
   entries: KeystoreEntry[]
 }
 
-export interface ListInput {
-  path: string
-  alias?: string
-  storePassword?: string
-}
-
-/** 对应 keytool -list -v，解析所有别名的证书指纹。 */
-export async function listKeystore(input: ListInput): Promise<KeystoreListResult> {
-  return await invoke('keystore_info_list', { input })
-}
-
-export interface KeyHashInput {
-  path: string
-  alias: string
-  storePassword?: string
-}
-
-export interface KeyHashResult {
-  alias: string
-  /** base64(SHA1(证书 DER))，即发布密钥散列 */
-  sha1Base64: string
-  /** 冒号分隔的 SHA-1 十六进制指纹，便于核对 */
-  sha1Hex: string
-}
-
-/** 对应 keytool -exportcert | openssl sha1 -binary | openssl base64。 */
-export async function getKeyHash(input: KeyHashInput): Promise<KeyHashResult> {
-  return await invoke('keystore_key_hash', { input })
+/**
+ * 读取签名文件详情（统一入口）：
+ * - keystore 走 keytool -list -v；
+ * - 裸证书（.der/.pem/.crt/.cer/.p7b）与 APK/AAB 走纯 Rust 解析，无需 JDK。
+ */
+export async function fileInfo(input: FileInfoInput): Promise<FileInfoResult> {
+  return await invoke('keystore_file_info', { input })
 }

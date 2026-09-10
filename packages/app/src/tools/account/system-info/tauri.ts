@@ -91,6 +91,14 @@ export interface DriveInfo {
   sizeBytes?: number
   serial?: string
   partitionCount?: number
+  /** 估计剩余生命百分比（SMART 健康数据，系统不提供时为空） */
+  lifePercent?: number
+  /** 可用备用百分比（NVMe，SATA 盘通常没有） */
+  sparePercent?: number
+  /** 当前温度（摄氏度） */
+  temperatureC?: number
+  /** SMART 健康状态：良好 / 警告 / 异常 */
+  healthStatus?: string
 }
 
 export interface VolumeInfo {

@@ -3,12 +3,11 @@ import { ref } from 'vue'
 import { useKeytoolCheck } from '../../../shell/use-keytool'
 import KeytoolHint from '../../../shell/KeytoolHint.vue'
 import KeystoreGenPanel from './KeystoreGenPanel.vue'
-import KeystoreHashPanel from './KeystoreHashPanel.vue'
-import KeystoreInfoPanel from './KeystoreInfoPanel.vue'
+import KeystoreDetailsPanel from './KeystoreDetailsPanel.vue'
 
-type Tab = 'info' | 'hash' | 'gen'
+type Tab = 'details' | 'gen'
 
-const tab = ref<Tab>('info')
+const tab = ref<Tab>('details')
 const { javaAvailable, javaPath } = useKeytoolCheck()
 </script>
 
@@ -16,19 +15,17 @@ const { javaAvailable, javaPath } = useKeytoolCheck()
   <div class="ksv">
     <h2>Keystore 工具</h2>
     <p class="lead">
-      Android APK 签名 keystore 相关操作：生成新的签名密钥，或读取现有 keystore 的证书指纹。文件与密码仅在本机传给 <code>keytool</code>，不会上传到任何服务器。
+      Android 签名相关操作：查看 keystore / 证书 / APK 的证书详情与指纹，或生成新的签名密钥。文件与密码仅在本机处理，不会上传到任何服务器。
     </p>
 
     <KeytoolHint :available="javaAvailable" :path="javaPath" />
 
     <div class="tabs">
-      <button class="tab" :class="{ active: tab === 'info' }" @click="tab = 'info'">查看指纹</button>
-      <button class="tab" :class="{ active: tab === 'hash' }" @click="tab = 'hash'">发布密钥散列</button>
+      <button class="tab" :class="{ active: tab === 'details' }" @click="tab = 'details'">文件详情</button>
       <button class="tab" :class="{ active: tab === 'gen' }" @click="tab = 'gen'">生成 Keystore</button>
     </div>
 
-    <KeystoreInfoPanel v-if="tab === 'info'" :java-available="javaAvailable" />
-    <KeystoreHashPanel v-else-if="tab === 'hash'" :java-available="javaAvailable" />
+    <KeystoreDetailsPanel v-if="tab === 'details'" :java-available="javaAvailable" />
     <KeystoreGenPanel v-else-if="tab === 'gen'" :java-available="javaAvailable" />
   </div>
 </template>

@@ -222,6 +222,14 @@ pub struct DriveInfo {
     pub size_bytes: Option<u64>,
     pub serial: Option<String>,
     pub partition_count: Option<u32>,
+    /// 估计剩余生命百分比（NVMe: 100 - percentage_used；SATA: 100 - wear）
+    pub life_percent: Option<u8>,
+    /// 可用备用百分比（NVMe available spare，SATA 盘通常没有）
+    pub spare_percent: Option<u8>,
+    /// 当前温度（摄氏度）
+    pub temperature_c: Option<i32>,
+    /// SMART 健康状态：良好 / 警告 / 异常
+    pub health_status: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -603,7 +611,6 @@ mod windows_impl {
         NetworkInfo, PeripheralInfo, VolumeInfo,
     };
     use serde_json::Value;
-    use std::os::windows::process::CommandExt;
 
     /// CIM 公共头：关闭错误即停（缺字段用空值兜底）、UTF-8 输出避免中文乱码。
     const HEADER: &str = "\
@@ -688,8 +695,14 @@ $volumes = @(Get-CimInstance Win32_LogicalDisk) | ForEach-Object {
   $vol | Select-Object DeviceID, VolumeName, FileSystem, Size, FreeSpace, DriveType, @{n='DiskModel';e={ $diskModel }}
 }
 [pscustomobject]@{
-  drives = @(Get-CimInstance Win32_DiskDrive) | Select-Object Model, InterfaceType, MediaType, Size, SerialNumber, Partitions
+  drives = @(Get-CimInstance Win32_DiskDrive) | Select-Object Index, Model, InterfaceType, MediaType, Size, SerialNumber, Partitions
   volumes = $volumes
+  # SMART 健康数据：Get-PhysicalDisk 的 HealthStatus 全员可读；可靠性计数器（磨损/温度）
+  # 非管理员可能拿不到（字段为 null），留空即可。Index 与 Win32_DiskDrive.Index 对应。
+  health = @(Get-PhysicalDisk) | ForEach-Object {
+    $rc = $_ | Get-StorageReliabilityCounter
+    [pscustomobject]@{ Index = [string]$_.DeviceId; Serial = $_.SerialNumber; Health = [string]$_.HealthStatus; Wear = $rc.Wear; Temperature = $rc.Temperature }
+  }
   # SMBIOS Type 9：主板物理插槽（PCIe 等）。M.2 槽位多数主板不报，占用情况系统层拿不到
   slots = @(Get-CimInstance Win32_SystemSlot) | Select-Object SlotDesignation, CurrentUsage, Status
 } | ConvertTo-Json -Compress -Depth 3";
@@ -703,11 +716,9 @@ $volumes = @(Get-CimInstance Win32_LogicalDisk) | ForEach-Object {
     /// 运行一段 CIM 查询脚本并解析 JSON，失败返回 None（页面相应字段显示为空，不报错）。
     fn run_cim(script: &str) -> Option<Value> {
         let full = format!("{HEADER}{script}");
-        let output = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &full])
-            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW，避免弹出控制台
-            .output()
-            .ok()?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &full]);
+        let output = crate::utils::command::run(&mut cmd).ok()?;
         if !output.status.success() {
             return None;
         }
@@ -913,14 +924,24 @@ $volumes = @(Get-CimInstance Win32_LogicalDisk) | ForEach-Object {
                 items
                     .iter()
                     .filter_map(|item| {
-                        Some(DriveInfo {
+                        let mut drive = DriveInfo {
                             model: str_field(item, "Model")?,
                             interface: str_field(item, "InterfaceType"),
                             media_type: str_field(item, "MediaType"),
                             size_bytes: u64_field(item, "Size"),
                             serial: str_field(item, "SerialNumber"),
                             partition_count: u64_field(item, "Partitions").map(|count| count as u32),
-                        })
+                            life_percent: None,
+                            spare_percent: None,
+                            temperature_c: None,
+                            health_status: None,
+                        };
+                        // ConvertTo-Json 会把 Index 序列化成数字
+                        let index = u64_field(item, "Index")
+                            .map(|index| index.to_string())
+                            .or_else(|| str_field(item, "Index"));
+                        merge_drive_health(&mut drive, index.as_deref(), value.get("health"));
+                        Some(drive)
                     })
                     .collect()
             })
@@ -1123,6 +1144,156 @@ $volumes = @(Get-CimInstance Win32_LogicalDisk) | ForEach-Object {
         digits.parse::<u64>().ok().map(|millis| millis / 1_000)
     }
 
+    /// 原生 NVMe 健康日志（health log page 0x02）的关键字段。
+    struct NvmeHealth {
+        temperature_c: i32,
+        spare_percent: u8,
+        used_percent: u8,
+    }
+
+    /// 原生读取 NVMe 健康日志：IOCTL_STORAGE_QUERY_PROPERTY +
+    /// StorageDeviceProtocolSpecificProperty。非管理员用 FILE_READ_ATTRIBUTES 即可打开；
+    /// 非 NVMe 盘、USB 外接盒或驱动拒绝时返回 None，退回 PowerShell 计数器。
+    fn nvme_health(index: &str) -> Option<NvmeHealth> {
+        use windows::core::PCWSTR;
+        use windows::Win32::Foundation::{CloseHandle, GENERIC_READ};
+        use windows::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+            FILE_SHARE_WRITE, OPEN_EXISTING,
+        };
+        use windows::Win32::System::IO::DeviceIoControl;
+
+        const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x2D_1400;
+        /// 对应 STORAGE_PROPERTY_QUERY + STORAGE_PROTOCOL_SPECIFIC：
+        /// PropertyId = StorageDeviceProtocolSpecificProperty(50)，请求 NVMe 日志页。
+        #[repr(C)]
+        struct StorageQuery {
+            property_id: u32,
+            query_type: u32,
+            protocol_type: u32, // ProtocolTypeNvme = 3
+            data_type: u32,     // NVMeDataTypeLogPage = 2
+            request_value: u32, // 日志页号：健康信息 = 0x02
+            request_sub_value: u32,
+            data_offset: u32,
+            data_length: u32,
+            fixed_return_data: u32,
+            reserved: [u32; 3],
+        }
+        let query = StorageQuery {
+            property_id: 50,
+            query_type: 0,
+            protocol_type: 3,
+            data_type: 2,
+            request_value: 2,
+            request_sub_value: 0,
+            data_offset: std::mem::size_of::<StorageQuery>() as u32 - 8, // 相对 AdditionalParameters
+            data_length: 512,
+            fixed_return_data: 0,
+            reserved: [0; 3],
+        };
+
+        let path: Vec<u16> = format!(r"\\.\PHYSICALDRIVE{index}").encode_utf16().chain(Some(0)).collect();
+        let open = |access: u32| {
+            unsafe {
+                CreateFileW(
+                    PCWSTR(path.as_ptr()),
+                    access,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    None,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    None,
+                )
+                .ok()
+            }
+        };
+        // 非管理员拿不到 GENERIC_READ，FILE_READ_ATTRIBUTES 足以发 FILE_ANY_ACCESS 的 IOCTL
+        let handle = open(FILE_READ_ATTRIBUTES.0).or_else(|| open(GENERIC_READ.0))?;
+        let mut buffer = [0u8; std::mem::size_of::<StorageQuery>() + 512];
+        let mut returned: u32 = 0;
+        let result = unsafe {
+            DeviceIoControl(
+                handle,
+                IOCTL_STORAGE_QUERY_PROPERTY,
+                Some(&query as *const StorageQuery as *const core::ffi::c_void),
+                std::mem::size_of::<StorageQuery>() as u32,
+                Some(buffer.as_mut_ptr() as *mut core::ffi::c_void),
+                buffer.len() as u32,
+                Some(&mut returned),
+                None,
+            )
+        };
+        unsafe {
+            let _ = CloseHandle(handle);
+        }
+        result.ok()?;
+        let offset = std::mem::size_of::<StorageQuery>();
+        if returned as usize <= offset {
+            return None;
+        }
+        // NVMe 健康日志布局：[0] 严重警告、[1..3] 温度（开尔文）、[3] 可用备用、[5] 已用寿命百分比
+        let log = &buffer[offset..];
+        let kelvin = u16::from_le_bytes([log[1], log[2]]) as i32;
+        if !(273..=473).contains(&kelvin) {
+            return None;
+        }
+        Some(NvmeHealth {
+            temperature_c: kelvin - 273,
+            spare_percent: log[3],
+            used_percent: log[5].min(100),
+        })
+    }
+
+    /// 合并磁盘健康数据：原生 NVMe health log 优先（含可用备用），拿不到时退回
+    /// PowerShell 可靠性计数器的磨损/温度；HealthStatus 两者都提供。
+    fn merge_drive_health(drive: &mut DriveInfo, index: Option<&str>, health: Option<&Value>) {
+        // Get-PhysicalDisk 的 DeviceId 是 "0"，Win32_DiskDrive 的 DeviceID 是 "\\.\PHYSICALDRIVE0"，取数字对齐
+        let index_digits = index.and_then(|index| {
+            let digits: String = index.chars().filter(|c| c.is_ascii_digit()).collect();
+            (!digits.is_empty()).then_some(digits)
+        });
+        let entry = as_items(health).and_then(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    Some((
+                        str_field(item, "Index"),
+                        str_field(item, "Serial"),
+                        str_field(item, "Health"),
+                        u64_field(item, "Wear"),
+                        item.get("Temperature").and_then(Value::as_i64),
+                    ))
+                })
+                .find(|(health_index, health_serial, ..)| {
+                    health_index.as_deref().map(|text| {
+                        let digits: String = text.chars().filter(|c| c.is_ascii_digit()).collect();
+                        Some(digits) == index_digits
+                    }) == Some(true)
+                        || health_serial
+                            .as_deref()
+                            .zip(drive.serial.as_deref())
+                            .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b.trim()))
+                })
+                .map(|(_, _, status, wear, temperature)| (status, wear, temperature))
+        });
+        if let Some((status, _, _)) = &entry {
+            drive.health_status = status.clone().map(|status| match status.to_ascii_lowercase().as_str() {
+                "healthy" => "良好".to_string(),
+                "warning" => "警告".to_string(),
+                "unhealthy" => "异常".to_string(),
+                _ => status,
+            });
+        }
+        if let Some(health) = index_digits.as_deref().and_then(nvme_health) {
+            drive.life_percent = Some(100 - health.used_percent);
+            drive.spare_percent = Some(health.spare_percent);
+            drive.temperature_c = Some(health.temperature_c);
+        } else if let Some((_, wear, temperature)) = entry {
+            drive.life_percent = wear.map(|wear| 100 - wear.min(100) as u8);
+            drive.temperature_c = temperature.filter(|value| (1..=120).contains(value)).map(|value| value as i32);
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::super::{collect_section, collect_summary, Section, SectionData};
@@ -1167,6 +1338,21 @@ $volumes = @(Get-CimInstance Win32_LogicalDisk) | ForEach-Object {
                 panic!("存储段应返回 Storage 分支");
             };
             assert!(!slots.is_empty(), "应能读取到主板插槽（Win32_SystemSlot）");
+        }
+
+        #[test]
+        fn storage_section_reports_drive_health() {
+            let data = collect_section(Section::Storage).expect("存储段采集应成功");
+            let SectionData::Storage { drives, .. } = data else {
+                panic!("存储段应返回 Storage 分支");
+            };
+            assert!(!drives.is_empty(), "应能读取到物理磁盘");
+            for drive in drives {
+                println!(
+                    "{}：剩余寿命 {:?}%，可用备用 {:?}%，温度 {:?}℃，状态 {:?}",
+                    drive.model, drive.life_percent, drive.spare_percent, drive.temperature_c, drive.health_status
+                );
+            }
         }
 
         #[test]
@@ -1339,6 +1525,12 @@ mod macos_impl {
                         let model = str_field(item, "model")
                             .or_else(|| str_field(item, "device_name"))
                             .or_else(|| str_field(item, "_name"))?;
+                        // 新版 system_profiler 带 "S.M.A.R.T. status"（Verified/Failing），只有结论没有百分比与温度
+                        let smart_status = str_field(item, "smart_status").map(|status| match status.as_str() {
+                            "Verified" => "良好".to_string(),
+                            "Failing" => "异常".to_string(),
+                            _ => status,
+                        });
                         Some(DriveInfo {
                             model,
                             interface: Some("NVMe".into()),
@@ -1346,6 +1538,10 @@ mod macos_impl {
                             size_bytes: u64_field(item, "capacity_in_bytes").or_else(|| u64_field(item, "capacity")),
                             serial: str_field(item, "serial"),
                             partition_count: None,
+                            life_percent: None,
+                            spare_percent: None,
+                            temperature_c: None,
+                            health_status: smart_status,
                         })
                     })
                     .collect()
@@ -1619,34 +1815,94 @@ mod linux_impl {
                 items
                     .iter()
                     .filter(|item| item.get("type").and_then(Value::as_str) == Some("disk"))
-                    .map(|item| DriveInfo {
-                        model: item
-                            .get("model")
-                            .and_then(Value::as_str)
-                            .filter(|model| !model.trim().is_empty())
-                            .unwrap_or(item.get("name").and_then(Value::as_str).unwrap_or("unknown disk"))
-                            .trim()
-                            .to_string(),
-                        interface: item
-                            .get("tran")
-                            .and_then(Value::as_str)
-                            .map(|tran| tran.to_ascii_uppercase()),
-                        media_type: item
-                            .get("rota")
-                            .and_then(Value::as_bool)
-                            .map(|rotational| if rotational { "HDD" } else { "SSD" })
-                            .map(|kind| kind.to_string()),
-                        size_bytes: u64_field(item, "size"),
-                        serial: item
-                            .get("serial")
-                            .and_then(Value::as_str)
-                            .map(|serial| serial.trim().to_string())
-                            .filter(|serial| !serial.is_empty()),
-                        partition_count: None,
+                    .map(|item| {
+                        let name = item.get("name").and_then(Value::as_str).unwrap_or_default().trim().to_string();
+                        let mut drive = DriveInfo {
+                            model: item
+                                .get("model")
+                                .and_then(Value::as_str)
+                                .filter(|model| !model.trim().is_empty())
+                                .unwrap_or(if name.is_empty() { "unknown disk" } else { &name })
+                                .trim()
+                                .to_string(),
+                            interface: item
+                                .get("tran")
+                                .and_then(Value::as_str)
+                                .map(|tran| tran.to_ascii_uppercase()),
+                            media_type: item
+                                .get("rota")
+                                .and_then(Value::as_bool)
+                                .map(|rotational| if rotational { "HDD" } else { "SSD" })
+                                .map(|kind| kind.to_string()),
+                            size_bytes: u64_field(item, "size"),
+                            serial: item
+                                .get("serial")
+                                .and_then(Value::as_str)
+                                .map(|serial| serial.trim().to_string())
+                                .filter(|serial| !serial.is_empty()),
+                            partition_count: None,
+                            life_percent: None,
+                            spare_percent: None,
+                            temperature_c: None,
+                            health_status: None,
+                        };
+                        merge_smart_health(&mut drive, &name);
+                        drive
                     })
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// 用 smartctl（smartmontools，若已安装）补 SMART 健康数据：
+    /// NVMe 解析 health log（剩余寿命/可用备用/温度），SATA 取温度与磨损属性。
+    /// 未安装或无权限（通常需要 root）时字段留空，不影响其它数据。
+    fn merge_smart_health(drive: &mut DriveInfo, name: &str) {
+        if name.is_empty() {
+            return;
+        }
+        let Ok(output) = std::process::Command::new("smartctl")
+            .args(["-j", "-a", &format!("/dev/{name}")])
+            .output()
+        else {
+            return;
+        };
+        // 权限不足时 smartctl 以非零码退出，stdout 仍可能是合法 JSON（只是缺健康日志）
+        let Ok(value) = serde_json::from_str::<Value>(String::from_utf8_lossy(&output.stdout).trim()) else {
+            return;
+        };
+        drive.health_status = value
+            .pointer("/smart_status/passed")
+            .and_then(Value::as_bool)
+            .map(|passed| if passed { "良好".to_string() } else { "警告".to_string() });
+        if let Some(log) = value.get("nvme_smart_health_information_log") {
+            if let Some(used) = u64_field(log, "percentage_used") {
+                drive.life_percent = Some(100 - used.min(100) as u8);
+            }
+            drive.spare_percent = u64_field(log, "available_spare").map(|spare| spare.min(100) as u8);
+            drive.temperature_c = u64_field(log, "temperature")
+                .filter(|kelvin| (273..=473).contains(kelvin))
+                .map(|kelvin| (kelvin - 273) as i32);
+        } else {
+            drive.temperature_c = value
+                .pointer("/temperature/current")
+                .and_then(Value::as_u64)
+                .filter(|celsius| (1..=120).contains(celsius))
+                .map(|celsius| celsius as i32);
+            // SATA SSD：SMART 属性 177（磨损均衡）/ 173（擦除次数余量）的归一化值 ≈ 剩余寿命
+            drive.life_percent = value
+                .pointer("/ata_smart_attributes/table")
+                .and_then(Value::as_array)
+                .and_then(|attrs| {
+                    attrs
+                        .iter()
+                        .filter(|attr| matches!(u64_field(attr, "id"), Some(173) | Some(177)))
+                        .filter_map(|attr| u64_field(attr, "value"))
+                        .next()
+                })
+                .filter(|value| *value <= 100)
+                .map(|value| value as u8);
+        }
     }
 
     /// 显示器：xrandr 解析（仅 X11 会话可用，Wayland 下留空）。

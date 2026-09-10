@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
-import { listKeystore, type KeystoreEntry } from './tauri'
+import { fileInfo, type FileInfoResult, type KeystoreEntry } from './tauri'
 
 const props = defineProps<{ javaAvailable: boolean | null }>()
 
@@ -11,28 +11,54 @@ const storePassword = ref('')
 const showPassword = ref(false)
 const loading = ref(false)
 const error = ref('')
-const result = ref<{ storeType: string | null; entries: KeystoreEntry[] } | null>(null)
+const result = ref<FileInfoResult | null>(null)
 const copiedKey = ref('')
 
+/** 选中的文件类型（按扩展名本地判断，与后端 classify 一致） */
+const kind = computed<'keystore' | 'cert' | 'apk'>(() => {
+  if (/\.(apk|aab)$/i.test(path.value.trim())) return 'apk'
+  if (/\.(der|pem|crt|cer|p7b|p7c)$/i.test(path.value.trim())) return 'cert'
+  return 'keystore'
+})
+/** 证书与 APK 走纯 Rust 解析，不依赖 keytool */
+const needsJava = computed(() => kind.value === 'keystore')
+
 const canSubmit = computed(
-  () => path.value.trim().length > 0 && props.javaAvailable === true && !loading.value,
+  () => path.value.trim().length > 0 && !loading.value && (!needsJava.value || props.javaAvailable === true),
 )
 
+const kindLabel = { keystore: 'keystore', cert: '证书', apk: 'APK / AAB' } as const
+
 /** 展示给用户的等价命令行，方便在别的环境复现 */
-const cmdline = computed(() => {
-  if (!path.value.trim()) return ''
-  let cmd = `keytool -list -v -keystore "${path.value.trim()}"`
-  if (alias.value.trim()) cmd += ` -alias "${alias.value.trim()}"`
-  return cmd
+const cmdlines = computed<{ label: string; cmd: string }[]>(() => {
+  const p = path.value.trim()
+  if (!p) return []
+  if (kind.value === 'apk') {
+    return [{ label: '证书指纹', cmd: `apksigner verify --print-certs --verbose "${p}"` }]
+  }
+  if (kind.value === 'cert') {
+    return [
+      { label: '证书指纹', cmd: `keytool -printcert -file "${p}"` },
+      { label: '密钥散列', cmd: `openssl x509 -in "${p}" -outform der | openssl sha1 -binary | openssl base64` },
+    ]
+  }
+  const aliasArg = alias.value.trim() ? ` -alias "${alias.value.trim()}"` : ''
+  return [
+    { label: '证书指纹', cmd: `keytool -list -v -keystore "${p}"${aliasArg}` },
+    { label: '密钥散列', cmd: `keytool -exportcert -keystore "${p}"${aliasArg} | openssl sha1 -binary | openssl base64` },
+  ]
 })
 
 async function chooseFile() {
   error.value = ''
   const selection = await open({
-    title: '选择 keystore 文件',
+    title: '选择签名文件',
     multiple: false,
     filters: [
+      { name: '支持的文件', extensions: ['jks', 'keystore', 'p12', 'pfx', 'der', 'pem', 'crt', 'cer', 'p7b', 'p7c', 'apk', 'aab'] },
       { name: 'Java KeyStore', extensions: ['jks', 'keystore', 'p12', 'pfx'] },
+      { name: '证书文件', extensions: ['der', 'pem', 'crt', 'cer', 'p7b', 'p7c'] },
+      { name: 'APK / AAB', extensions: ['apk', 'aab'] },
       { name: '所有文件', extensions: ['*'] },
     ],
   })
@@ -48,13 +74,13 @@ async function submit() {
   error.value = ''
   result.value = null
   try {
-    result.value = await listKeystore({
+    result.value = await fileInfo({
       path: path.value.trim(),
       alias: alias.value.trim() || undefined,
       storePassword: storePassword.value || undefined,
     })
     if (result.value.entries.length === 0) {
-      error.value = '未解析到任何别名。请检查密码是否正确、文件是否为有效的 keystore。'
+      error.value = '未解析到任何证书。请检查文件类型或密码是否正确。'
     }
   } catch (e: any) {
     error.value = String(e?.message || e)
@@ -74,58 +100,73 @@ async function copyValue(key: string, value: string) {
     error.value = `复制失败: ${String(e?.message || e)}`
   }
 }
+
+function entryTitle(entry: KeystoreEntry): string {
+  return kind.value === 'keystore' ? entry.alias : `${entry.alias}${entry.entryType ? ` · ${entry.entryType}` : ''}`
+}
 </script>
 
 <template>
-  <div class="ksi">
+  <div class="ksd">
     <p class="lead">
-      读取 keystore 文件中的证书信息与指纹。Android 应用在微信开放平台、高德、Google Play 等平台注册时需要填 SHA-1。
+      读取签名文件的证书详情：所有者、有效期、MD5 / SHA-1 / SHA-256 指纹，以及密钥散列（base64(SHA1)，Facebook「Android Key Hashes」、微信开放平台「应用签名」要求填的就是它）。
+      支持 keystore、裸证书（.der / .pem / .p7b 等）与 APK / AAB。查看「线上实际签名」请用从应用商店下载的 APK——Play App Signing 场景下自己导出的 AAB 签的是上传密钥，不是线上密钥。
     </p>
 
     <section class="card">
       <div class="field-row">
-        <label class="field-label">keystore 文件</label>
-        <input v-model="path" class="input" placeholder="选择 .jks / .keystore / .p12 文件" readonly @click="chooseFile" />
+        <label class="field-label">文件</label>
+        <input v-model="path" class="input" placeholder="选择 keystore / 证书 / APK 文件" readonly @click="chooseFile" />
         <button class="btn btn-outline" @click="chooseFile">浏览…</button>
       </div>
+      <p v-if="path" class="hint">识别为：{{ kindLabel[kind] }}<template v-if="kind !== 'keystore'">（无需安装 JDK）</template></p>
 
-      <div class="field-row">
-        <label class="field-label">Alias（可选）</label>
-        <input v-model="alias" class="input" placeholder="留空列出所有别名" />
-      </div>
+      <template v-if="kind === 'keystore'">
+        <div class="field-row">
+          <label class="field-label">Alias（可选）</label>
+          <input v-model="alias" class="input" placeholder="留空列出所有别名" />
+        </div>
 
-      <div class="field-row">
-        <label class="field-label">keystore 密码</label>
-        <input
-          v-model="storePassword"
-          :type="showPassword ? 'text' : 'password'"
-          class="input"
-          placeholder="不填则按无密码尝试"
-          @keydown.enter="submit"
-        />
-        <button class="btn btn-outline" @click="showPassword = !showPassword">{{ showPassword ? '隐藏' : '显示' }}</button>
-      </div>
+        <div class="field-row">
+          <label class="field-label">keystore 密码</label>
+          <input
+            v-model="storePassword"
+            :type="showPassword ? 'text' : 'password'"
+            class="input"
+            placeholder="不填则按无密码尝试"
+            @keydown.enter="submit"
+          />
+          <button class="btn btn-outline" @click="showPassword = !showPassword">{{ showPassword ? '隐藏' : '显示' }}</button>
+        </div>
+      </template>
 
       <div class="actions">
-        <button class="btn" :disabled="!canSubmit" @click="submit">{{ loading ? '正在读取…' : '读取指纹' }}</button>
+        <button class="btn" :disabled="!canSubmit" @click="submit">{{ loading ? '正在读取…' : '读取详情' }}</button>
       </div>
 
-      <p v-if="cmdline" class="hint cmdline">
-        等价命令行：<code>{{ cmdline }}</code>
-        <button class="copy-btn" @click="copyValue('cmd', cmdline)">
-          {{ copiedKey === 'cmd' ? '已复制 ✓' : '复制' }}
-        </button>
-      </p>
+      <div v-if="cmdlines.length" class="cmdlines">
+        <p class="hint cmdline-title">等价命令行：</p>
+        <div v-for="c in cmdlines" :key="c.label" class="cmdline">
+          <span class="cmdline-label">{{ c.label }}</span>
+          <code class="cmdline-text">{{ c.cmd }}</code>
+          <button class="copy-btn" @click="copyValue(c.cmd, c.cmd)">
+            {{ copiedKey === c.cmd ? '已复制 ✓' : '复制' }}
+          </button>
+        </div>
+      </div>
       <p v-if="error" class="error">{{ error }}</p>
     </section>
 
     <section v-if="result" class="card">
       <div class="status success">
-        解析到 {{ result.entries.length }} 个别名<template v-if="result.storeType">（{{ result.storeType }}）</template>
+        解析到 {{ result.entries.length }} 条证书<template v-if="result.storeType">（{{ result.storeType }}）</template>
       </div>
 
-      <div v-for="(entry, i) in result.entries" :key="entry.alias" class="entry">
-        <h3 class="entry-title">{{ entry.alias }}<span v-if="entry.entryType" class="entry-type">{{ entry.entryType }}</span></h3>
+      <div v-for="(entry, i) in result.entries" :key="`${entry.alias}-${i}`" class="entry">
+        <h3 class="entry-title">
+          {{ entryTitle(entry) }}
+          <span v-if="kind === 'keystore' && entry.entryType" class="entry-type">{{ entry.entryType }}</span>
+        </h3>
 
         <div class="meta">
           <div v-if="entry.owner" class="meta-row"><span class="meta-label">所有者</span><span class="meta-value">{{ entry.owner }}</span></div>
@@ -140,6 +181,13 @@ async function copyValue(key: string, value: string) {
           <div v-if="entry.keyAlgorithm" class="meta-row"><span class="meta-label">密钥</span><span class="meta-value">{{ entry.keyAlgorithm }}</span></div>
         </div>
 
+        <div v-if="entry.sha1Base64" class="fp-row highlight">
+          <span class="fp-label">密钥散列</span>
+          <code class="fp-value">{{ entry.sha1Base64 }}</code>
+          <button class="copy-btn" @click="copyValue(`hash-${i}`, entry.sha1Base64!)">
+            {{ copiedKey === `hash-${i}` ? '已复制 ✓' : '复制' }}
+          </button>
+        </div>
         <div v-if="entry.fingerprintSha1" class="fp-row">
           <span class="fp-label">SHA-1</span>
           <code class="fp-value">{{ entry.fingerprintSha1 }}</code>
@@ -164,17 +212,27 @@ async function copyValue(key: string, value: string) {
       </div>
 
       <p class="hint">
-        平台要求的格式可能不同：多数平台直接粘贴上面带冒号的值即可；要求「去掉冒号」时，粘贴前删除冒号即可（字母大小写一般不敏感，按要求保留）。
+        「密钥散列」即 base64(SHA1(证书))，可直接粘贴到 Facebook「Android Key Hashes」、微信「应用签名」等平台后台。
+        平台要求指纹「去掉冒号」时，粘贴前删除冒号即可（大小写一般不敏感，按要求保留）。
+        密钥散列的管道命令需要 openssl（Git Bash 自带）；本工具直接由 SHA-1 指纹换算，无需 openssl。
       </p>
     </section>
   </div>
 </template>
 
 <style scoped>
-.ksi { max-width: 720px; margin: 0 auto; }
+.ksd { max-width: 720px; margin: 0 auto; }
 .lead { color: var(--fg-muted); margin-bottom: 16px; }
 .hint { font-size: 12px; color: var(--fg-muted); margin: 8px 0 0; }
-.hint.cmdline { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cmdlines { margin-top: 12px; }
+.cmdline-title { margin: 0 0 4px; }
+.cmdline { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+.cmdline-label { flex: 0 0 60px; font-size: 12px; color: var(--fg-muted); }
+.cmdline-text {
+  flex: 1 1 auto; min-width: 0;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: var(--fg-muted); word-break: break-all; user-select: text;
+}
 .error { color: var(--danger); margin: 12px 0 0; font-size: 13px; }
 
 .card {
@@ -231,6 +289,7 @@ async function copyValue(key: string, value: string) {
 .meta-value.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 
 .fp-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.fp-row.highlight code { color: var(--success); }
 .fp-label {
   flex: 0 0 64px; font-size: 12px; color: var(--fg-muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;

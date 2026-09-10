@@ -2,6 +2,7 @@ mod common;
 mod logging;
 mod tools;
 mod tray;
+mod utils;
 
 use tauri::Manager;
 use tray::{setup_tray, show_main};
@@ -67,8 +68,7 @@ pub fn run() {
             tools::port_check::port_check_kill,
             tools::keystore_gen::keystore_check_java,
             tools::keystore_gen::keystore_generate,
-            tools::keystore_info::keystore_key_hash,
-            tools::keystore_info::keystore_info_list,
+            tools::keystore_info::keystore_file_info,
             tools::save_file::read_image_file,
             tools::save_file::save_base64_file,
             tools::screenshot::screenshot_clear,

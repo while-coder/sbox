@@ -79,33 +79,33 @@ pub async fn keystore_generate(
 
     let dname_str = format_dname(&dname);
 
-    let output = Command::new(&keytool)
-        .args([
-            "-genkeypair",
-            "-keystore",
-            &path,
-            "-storetype",
-            "PKCS12",
-            "-alias",
-            &alias,
-            "-keyalg",
-            "RSA",
-            "-keysize",
-            "2048",
-            "-validity",
-            &validity_days.to_string(),
-            "-storepass:env",
-            "KS_STORE_PASS",
-            "-keypass:env",
-            "KS_KEY_PASS",
-            "-dname",
-            &dname_str,
-            "-noprompt",
-        ])
-        .env("KS_STORE_PASS", &store_password)
-        .env("KS_KEY_PASS", &key_password)
-        .output()
-        .map_err(|e| format!("调用 keytool 失败: {e}"))?;
+    let mut cmd = Command::new(&keytool);
+    cmd.args([
+        "-genkeypair",
+        "-keystore",
+        &path,
+        "-storetype",
+        "PKCS12",
+        "-alias",
+        &alias,
+        "-keyalg",
+        "RSA",
+        "-keysize",
+        "2048",
+        "-validity",
+        &validity_days.to_string(),
+        "-storepass:env",
+        "KS_STORE_PASS",
+        "-keypass:env",
+        "KS_KEY_PASS",
+        "-dname",
+        &dname_str,
+        "-noprompt",
+    ])
+    .env("KS_STORE_PASS", &store_password)
+    .env("KS_KEY_PASS", &key_password);
+
+    let output = crate::utils::command::run(&mut cmd).map_err(|e| format!("调用 keytool 失败: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -120,7 +120,8 @@ pub async fn keystore_generate(
     let bytes = std::fs::read(&target).map_err(|e| format!("读取生成的 keystore 失败: {e}"))?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
-    let list_output = Command::new(&keytool)
+    let mut list_cmd = Command::new(&keytool);
+    list_cmd
         .args([
             "-list",
             "-v",
@@ -131,9 +132,9 @@ pub async fn keystore_generate(
             "-storepass:env",
             "KS_STORE_PASS",
         ])
-        .env("KS_STORE_PASS", &store_password)
-        .output()
-        .map_err(|e| format!("读取指纹失败: {e}"))?;
+        .env("KS_STORE_PASS", &store_password);
+
+    let list_output = crate::utils::command::run(&mut list_cmd).map_err(|e| format!("读取指纹失败: {e}"))?;
 
     let list_text = String::from_utf8_lossy(&list_output.stdout);
     let fp_sha256 = extract_fingerprint(&list_text, "SHA256:")

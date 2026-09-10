@@ -27,6 +27,9 @@ url = "2"
 sha1 = "0.10"
 digest = "0.10"
 base64 = "0.22"
+# Keystore 工具：解析证书元信息（只做解析，勿开 verify/ring feature）
+x509-parser = "0.18"
+md-5 = "0.10"
 rand = "0.8"
 ssh-key = { version = "0.6.7", default-features = false, features = ["std", "ed25519", "rsa", "encryption", "getrandom"] }
 urlencoding = "2"
@@ -40,7 +43,7 @@ tauri-plugin-clipboard-manager = "2.3.2"
 sysinfo = "0.39.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Security", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage", "Win32_System_IO", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-foundation = { version = "0.3.2", features = ["NSProcessInfo"] }
@@ -49,7 +52,14 @@ screencapturekit = { version = "8", features = ["macos_14_0"] }
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
 
+# dev 下只保留行号调试信息：本 crate 的全量 debuginfo 会让 PDB 巨大，
+# 触发 MSVC 14.50 link.exe 的 LNK1318（"意外的 PDB 错误: OK (0)"）回归 bug。
+# line-tables-only 仍支持断点与调用栈行号。
+[profile.dev]
+debug = "line-tables-only"
+
 # dev 下也优化依赖（PNG 编码 / 截图捕获等），显著加快 tauri dev 的截图速度；
 # 只优化依赖、不优化本 crate，增量编译仍快。
 [profile.dev.package."*"]
 opt-level = 3
+debug = false

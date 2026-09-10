@@ -45,7 +45,7 @@ fn hosts_write_impl(_content: &str) -> Result<(), String> {
 #[cfg(windows)]
 pub(super) mod windows_impl {
     use super::HostsReadResult;
-    use std::{fs, os::windows::process::CommandExt, path::PathBuf};
+    use std::{fs, path::PathBuf};
 
     fn hosts_path() -> PathBuf {
         let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
@@ -92,11 +92,9 @@ pub(super) mod windows_impl {
 
     /// 尽力刷新 DNS 缓存，让 hosts 修改立即对新解析生效；失败只记日志。
     fn flush_dns_cache() {
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let result = std::process::Command::new("ipconfig")
-            .arg("/flushdns")
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
+        let mut cmd = std::process::Command::new("ipconfig");
+        cmd.arg("/flushdns");
+        let result = crate::utils::command::run(&mut cmd);
         match result {
             Ok(output) if output.status.success() => log::debug!("已刷新 DNS 解析缓存"),
             Ok(output) => log::warn!("刷新 DNS 缓存失败（exit {:?}），可手动执行 ipconfig /flushdns", output.status.code()),
