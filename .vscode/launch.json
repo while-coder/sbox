@@ -4,7 +4,7 @@
     {
       "type": "cppvsdbg",
       "request": "launch",
-      "name": "Tauri Debug (dev) · Windows",
+      "name": "Launch App · Windows",
       "preLaunchTask": "tauri:before:dev",
       "program": "${workspaceFolder}/packages/app/src-tauri/target/debug/sbox.exe",
       "cwd": "${workspaceFolder}/packages/app/src-tauri"
@@ -12,7 +12,7 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Tauri Debug (dev) · macOS",
+      "name": "Launch App · macOS",
       "preLaunchTask": "tauri:before:dev",
       "program": "${workspaceFolder}/packages/app/src-tauri/target/debug/sbox",
       "cwd": "${workspaceFolder}/packages/app/src-tauri"

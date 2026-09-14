@@ -9,19 +9,17 @@
     "build:web": "pnpm --filter @sbox/web build",
     "preview:web": "pnpm --filter @sbox/web preview",
     "dev": "pnpm --filter @sbox/app dev",
-    "dev:app": "pnpm --filter @sbox/app dev",
     "dev:app:mac": "pnpm --filter @sbox/app macos:dev",
     "build:app": "pnpm --filter @sbox/app windows:build",
     "build:app:mac": "pnpm --filter @sbox/app macos:build",
     "tauri": "pnpm --filter @sbox/app tauri",
+    "debug:app": "cargo build --manifest-path packages/app/src-tauri/Cargo.toml --no-default-features",
     "release": "node scripts/release.cjs",
     "docs:dev": "vitepress dev docs-site",
     "docs:build": "vitepress build docs-site",
     "docs:preview": "vitepress preview docs-site"
   },
   "devDependencies": {
-    "typescript": "catalog:",
-    "vite": "catalog:",
     "vitepress": "^1.6.3"
   },
   "pnpm": {

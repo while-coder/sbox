@@ -4,6 +4,15 @@
 const KEYS: &[&str] = &["GDRIVE_BUILTIN_CLIENT_ID", "GDRIVE_BUILTIN_CLIENT_SECRET"];
 
 fn main() {
+    // macOS：screencapturekit → swift-rs 会把 @rpath/libswiftCore.dylib 等系统 Swift 运行库
+    // 链进最终二进制，但 rustc 不会像 Xcode 那样自动补 LC_RPATH，缺少 rpath 时应用会在
+    // 启动阶段被 dyld abort（"Library not loaded: @rpath/libswiftCore.dylib, no LC_RPATH's found"）。
+    // /usr/lib/swift 是系统自带 Swift 运行时（dyld shared cache）的解析路径，随系统存在；
+    // @executable_path/../Frameworks 兜底，以便日后向 .app/Contents/Frameworks 内嵌库时无需改动。
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
+    }
     for key in KEYS {
         let value = std::env::var(key)
             .ok()

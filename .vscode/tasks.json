@@ -3,10 +3,22 @@
   "tasks": [
     {
       "label": "ui:kill",
-      "type": "shell",
-      "command": "npx kill-port 1400",
-      "options": { "cwd": "${workspaceFolder}" },
+      "type": "process",
+      "command": "node",
+      "args": ["${workspaceFolder}/scripts/kill-port.cjs", "1400"],
       "problemMatcher": []
+    },
+    {
+      "label": "debug:app",
+      "type": "shell",
+      "command": "pnpm run debug:app",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$rustc"],
+      "presentation": { "reveal": "silent", "panel": "dedicated" }
     },
     {
       "label": "ui:dev",
@@ -17,28 +29,18 @@
       "options": { "cwd": "${workspaceFolder}/packages/app" },
       "problemMatcher": {
         "owner": "vite",
-        "pattern": { "regexp": "" },
+        "pattern": { "regexp": ".+" },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": ".*",
-          "endsPattern": "(ready in|Local:).*"
+          "beginsPattern": ".+",
+          "endsPattern": "Local.*1400"
         }
-      }
-    },
-    {
-      "label": "rust:build:dev",
-      "type": "shell",
-      "command": "cargo",
-      "args": [
-        "build",
-        "--manifest-path=${workspaceFolder}/packages/app/src-tauri/Cargo.toml",
-        "--no-default-features"
-      ],
-      "problemMatcher": ["$rustc"]
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated" }
     },
     {
       "label": "tauri:before:dev",
-      "dependsOn": ["ui:kill", "rust:build:dev", "ui:dev"],
+      "dependsOn": ["ui:kill", "debug:app", "ui:dev"],
       "dependsOrder": "sequence"
     }
   ]
