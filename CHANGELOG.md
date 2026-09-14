@@ -5,6 +5,11 @@
 ### 新增
 
 - 新增端口占用检查工具，可查看本地 TCP / UDP 端口被哪些进程监听或连接（支持 IPv4 / IPv6），并可一键结束占用进程，结束后自动重新检查。
+- Keystore 工具新增「文件详情」面板，可查看 keystore、证书（der / pem / p7b）及 APK / AAB 的证书信息：别名、有效期、MD5 / SHA-1 / SHA-256 指纹与密钥散列（Facebook Android Key Hashes、微信应用签名等），纯本机解析，无需安装 JDK。
+
+### 优化
+
+- 重做 Keystore 工具页面，将生成与详情查看整合为双页签，新增 keytool 环境检测提示。
 
 ## 0.0.6
 
