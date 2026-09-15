@@ -1,5 +1,12 @@
 # sbox
 
+## 0.0.8
+
+### 修复
+
+- 修复 macOS 版应用启动时因缺少 Swift 运行库路径（rpath）被 dyld 中止，提示 `Library not loaded: @rpath/libswiftCore.dylib` 的问题。
+- 修复 macOS 上截图覆盖层可能一直不显示的问题（隐藏窗口会暂停 requestAnimationFrame，现增加超时兜底）。
+
 ## 0.0.7
 
 ### 新增
