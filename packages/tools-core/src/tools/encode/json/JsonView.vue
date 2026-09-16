@@ -116,7 +116,7 @@ const stats = computed(() => {
 </template>
 
 <style scoped>
-.tool { max-width: 1100px; margin: 0 auto; }
+.tool { max-width: 92%; margin: 0 auto; height: 100%; display: flex; flex-direction: column; }
 .lead { color: var(--fg-muted); margin-bottom: 16px; }
 
 .card {
@@ -132,11 +132,11 @@ const stats = computed(() => {
 .indent-select { flex: 0 0 64px; }
 .stats { font-size: 12px; color: var(--fg-muted); }
 
-.io-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.io-col { display: flex; flex-direction: column; }
-.label-row { margin-bottom: 6px; }
+.io-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; flex: 1 1 auto; min-height: 0; }
+.io-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.label-row { margin-bottom: 6px; flex: 0 0 auto; }
 
-.tree { padding: 12px; overflow: auto; max-height: 560px; min-height: 120px; }
+.tree { padding: 12px; overflow: auto; flex: 1 1 auto; min-height: 320px; }
 .placeholder { color: var(--fg-muted); font-size: 13px; margin: 0; }
 
 .input {
@@ -151,6 +151,9 @@ const stats = computed(() => {
 
 .textarea {
   width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 320px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 4px;

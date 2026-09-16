@@ -311,7 +311,7 @@ const tabs: { key: Tab; label: string }[] = [
 </template>
 
 <style scoped>
-.codec { max-width: 1100px; margin: 0 auto; }
+.codec { max-width: 92%; margin: 0 auto; }
 .lead { color: var(--fg-muted); margin-bottom: 16px; }
 
 .tab-bar {

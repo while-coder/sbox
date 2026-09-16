@@ -162,7 +162,7 @@ function switchTab(t: Tab) { activeTab.value = t; results.value = []; error.valu
 </template>
 
 <style scoped>
-.tool { max-width: 880px; margin: 0 auto; }
+.tool { max-width: 92%; margin: 0 auto; }
 .lead { color: var(--fg-muted); margin-bottom: 16px; }
 
 .tab-bar { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }

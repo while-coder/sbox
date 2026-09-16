@@ -122,7 +122,7 @@ const algos: { v: HashAlgorithm; label: string }[] = [
 </template>
 
 <style scoped>
-.tool { max-width: 880px; margin: 0 auto; }
+.tool { max-width: 92%; margin: 0 auto; }
 .lead { color: var(--fg-muted); margin-bottom: 16px; }
 
 .card {

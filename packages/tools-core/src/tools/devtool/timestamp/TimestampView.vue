@@ -193,7 +193,7 @@ async function copyValue(key: string, value: string) {
 </template>
 
 <style scoped>
-.tool { max-width: 1100px; margin: 0 auto; }
+.tool { max-width: 92%; margin: 0 auto; }
 .lead { color: var(--fg-muted); margin-bottom: 16px; }
 
 .card {
