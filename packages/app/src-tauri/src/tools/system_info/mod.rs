@@ -1514,39 +1514,41 @@ mod macos_impl {
                     .collect()
             })
             .unwrap_or_default();
-        // NVMe 盘字段为小写（model / serial / capacity_in_bytes）
-        let drives = storage
+        // 物理盘：SPNVMeDataType 覆盖 Apple Silicon / 新系统的 NVMe 盘；
+        // Intel 机型（SATA SSD/HDD）或部分系统版本没有该数据类型，此时从
+        // SPStorageDataType 条目的 physical_drive 子对象兜底，两者按型号去重
+        let mut drives: Vec<DriveInfo> = storage
             .get("SPNVMeDataType")
             .and_then(Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| {
-                        let model = str_field(item, "model")
-                            .or_else(|| str_field(item, "device_name"))
-                            .or_else(|| str_field(item, "_name"))?;
-                        // 新版 system_profiler 带 "S.M.A.R.T. status"（Verified/Failing），只有结论没有百分比与温度
-                        let smart_status = str_field(item, "smart_status").map(|status| match status.as_str() {
-                            "Verified" => "良好".to_string(),
-                            "Failing" => "异常".to_string(),
-                            _ => status,
-                        });
-                        Some(DriveInfo {
-                            model,
-                            interface: Some("NVMe".into()),
-                            media_type: Some("SSD".into()),
-                            size_bytes: u64_field(item, "capacity_in_bytes").or_else(|| u64_field(item, "capacity")),
-                            serial: str_field(item, "serial"),
-                            partition_count: None,
-                            life_percent: None,
-                            spare_percent: None,
-                            temperature_c: None,
-                            health_status: smart_status,
-                        })
-                    })
-                    .collect()
-            })
+            .map(|items| items.iter().filter_map(nvme_drive).collect())
             .unwrap_or_default();
+        for item in storage
+            .get("SPStorageDataType")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item.get("physical_drive"))
+        {
+            let Some(model) = str_field(item, "device_name").or_else(|| str_field(item, "_name")) else {
+                continue;
+            };
+            if drives.iter().any(|drive| drive.model == model) {
+                continue;
+            }
+            drives.push(DriveInfo {
+                model,
+                interface: str_field(item, "protocol").map(|ref protocol| parse_interface(protocol)),
+                media_type: str_field(item, "medium_type").and_then(|ref medium| parse_media_type(medium)),
+                // physical_drive 不带容量，容量在卷信息中体现
+                size_bytes: None,
+                serial: None,
+                partition_count: None,
+                life_percent: None,
+                spare_percent: None,
+                temperature_c: None,
+                health_status: parse_smart_status(str_field(item, "smart_status")),
+            });
+        }
         // PCIe 插槽（Mac Pro 等可扩展机型）；Apple Silicon 全部板载，返回空。
         // system_profiler 只列已插卡的槽，空槽不会出现
         let slots = run_profiler("SPPCIDataType")
@@ -1694,7 +1696,59 @@ mod macos_impl {
     }
 
     fn u64_field(value: &Value, key: &str) -> Option<u64> {
-        value.get(key)?.as_u64()
+        // system_profiler 常把数字输出成字符串（如 "capacity_in_bytes"），两种形态都接受
+        match value.get(key)? {
+            Value::Number(number) => number.as_u64(),
+            Value::String(text) => text.trim().parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// S.M.A.R.T. 状态只有结论（Verified/Failing）没有百分比与温度
+    fn parse_smart_status(status: Option<String>) -> Option<String> {
+        status.map(|status| match status.as_str() {
+            "Verified" => "良好".to_string(),
+            "Failing" => "异常".to_string(),
+            _ => status,
+        })
+    }
+
+    /// protocol 形如 "PCI-Express" / "SATA" / "USB"，统一成接口名
+    fn parse_interface(protocol: &str) -> String {
+        match protocol {
+            "PCI-Express" => "NVMe".into(),
+            "SATA" | "SATA External" => "SATA".into(),
+            other => other.into(),
+        }
+    }
+
+    /// medium_type 形如 "ssd" / "hdd" / "solid_state"
+    fn parse_media_type(medium: &str) -> Option<String> {
+        match medium {
+            "ssd" | "solid_state" => Some("SSD".into()),
+            "hdd" => Some("机械硬盘".into()),
+            "" | "unknown" => None,
+            other => Some(other.into()),
+        }
+    }
+
+    /// NVMe 盘字段为小写（model / serial / capacity_in_bytes）
+    fn nvme_drive(item: &Value) -> Option<DriveInfo> {
+        let model = str_field(item, "model")
+            .or_else(|| str_field(item, "device_name"))
+            .or_else(|| str_field(item, "_name"))?;
+        Some(DriveInfo {
+            model,
+            interface: Some("NVMe".into()),
+            media_type: Some("SSD".into()),
+            size_bytes: u64_field(item, "capacity_in_bytes").or_else(|| u64_field(item, "capacity")),
+            serial: str_field(item, "serial"),
+            partition_count: None,
+            life_percent: None,
+            spare_percent: None,
+            temperature_c: None,
+            health_status: parse_smart_status(str_field(item, "smart_status")),
+        })
     }
 }
 
