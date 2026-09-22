@@ -8,6 +8,7 @@ import { systemInfoTool } from '../tools/account/system-info'
 import { xiaoaiLoginTool } from '../tools/account/xiaoai-login'
 import { gdriveLoginTool } from '../tools/account/gdrive-login'
 import { fileLocksTool } from '../tools/devtool/file-locks'
+import { batchRenameTool } from '../tools/file/batch-rename'
 import { portCheckTool } from '../tools/devtool/port-check'
 import { envVarsTool } from '../tools/devtool/env-vars'
 import { translatorTool } from '../tools/devtool/translator'
@@ -19,6 +20,7 @@ import { screenshotTool } from '../tools/media/screenshot'
 export const NATIVE_TOOLS: ToolDef[] = [
   systemInfoTool,
   fileLocksTool,
+  batchRenameTool,
   portCheckTool,
   envVarsTool,
   screenshotTool,

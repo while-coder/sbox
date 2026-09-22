@@ -31,11 +31,12 @@ export interface ToolDef {
   component: () => Promise<{ default: Component }>
 }
 
-export type CategoryKey = 'encode' | 'devtool' | 'genverify' | 'media' | 'account'
+export type CategoryKey = 'encode' | 'devtool' | 'genverify' | 'media' | 'file' | 'account'
 
 export const CATEGORIES: { key: CategoryKey; label: string }[] = [
   { key: 'encode', label: '编解码 / 数据' },
   { key: 'devtool', label: '开发辅助' },
+  { key: 'file', label: '文件工具' },
   { key: 'genverify', label: '生成 / 校验' },
   { key: 'media', label: '图像 / 媒体' },
   { key: 'account', label: '账号 / 设备' },

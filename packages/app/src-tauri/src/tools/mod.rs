@@ -1,4 +1,5 @@
 pub mod autostart;
+pub mod batch_rename;
 pub mod env_vars;
 pub mod external;
 pub mod gdrive_login;
