@@ -141,6 +141,19 @@ function replaceTransform(rule: Extract<RenameRule, { type: 'replace' }>): ((s: 
   }
 }
 
+/**
+ * 对扩展名应用文本变换。ext 不含点，但用户输入的查找内容可能带前导点（如 ".js"），
+ * 先按裸 ext 匹配，未命中再补上点匹配一次，并去掉结果的前导点。
+ */
+function transformExtension(transform: (s: string) => string, ext: string): string {
+  if (!ext) return ext
+  const bare = transform(ext)
+  if (bare !== ext) return bare
+  const dotted = `.${ext}`
+  const replaced = transform(dotted)
+  return replaced === dotted ? bare : replaced.replace(/^\.+/, '')
+}
+
 /** 单条规则应用到文件名的 base/ext 上，不可变，返回新的 parts。insert/sequence 为位置操作，不受 applyToExtension 影响。 */
 export function applyRule(rule: RenameRule, parts: NameParts, fileIndex: number): NameParts {
   if (!rule.enabled) return parts
@@ -149,7 +162,7 @@ export function applyRule(rule: RenameRule, parts: NameParts, fileIndex: number)
       const transform = replaceTransform(rule)
       if (!transform) return parts
       const next: NameParts = { base: transform(parts.base), ext: parts.ext }
-      if (rule.applyToExtension) next.ext = transform(parts.ext)
+      if (rule.applyToExtension) next.ext = transformExtension(transform, parts.ext)
       return next
     }
     case 'insert': {

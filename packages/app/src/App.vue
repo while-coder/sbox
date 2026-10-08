@@ -10,6 +10,8 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { UpdaterDialog } from '@while-coder/tauri-updater-vue'
 import { toolNavGroups } from '@sbox/tools-core'
+// 深路径按需导入：从包入口导入会把全部组件拖进主包（SFC tree-shake 不可靠）
+import SMessageHost from '@qingfeng346/ui-kit/components/SMessageHost.vue'
 import { ALL_TOOLS } from './shell/registry'
 import { loadSettings } from './shell/settings'
 import { setupCloseToTray, applyBossKey, watchBossKey, refreshAutostart } from './shell/system'
@@ -120,35 +122,12 @@ onUnmounted(() => {
       </main>
     </section>
     <UpdaterDialog />
+    <!-- toast / confirm / loading 的全局渲染宿主（@qingfeng346/ui-kit 的反馈类组合式函数） -->
+    <SMessageHost />
   </div>
 </template>
 
 <style>
-:root {
-  --fg: #1a1a1a;
-  --fg-muted: #666;
-  --bg: #f8f8f8;
-  --card: #fff;
-  --border: #e5e5e5;
-  --primary: #2d6cdf;
-  --primary-hover: #1f56b8;
-  --success: #2da44e;
-  --danger: #cf222e;
-  --radius: 8px;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --fg: #e5e5e5;
-    --fg-muted: #999;
-    --bg: #1a1a1a;
-    --card: #242424;
-    --border: #333;
-  }
-}
-* { box-sizing: border-box; }
-html, body, #app { height: 100%; margin: 0; }
-body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; color: var(--fg); background: var(--bg); }
-
 .app-shell { display: flex; height: 100%; min-width: 0; overflow: hidden; }
 .sidebar {
   display: flex; flex: 0 0 252px; flex-direction: column; min-width: 0;

@@ -66,6 +66,7 @@ pub fn run() {
             tools::file_locks::file_locks_check,
             tools::batch_rename::batch_rename_list_dir,
             tools::batch_rename::batch_rename_is_dir,
+            tools::batch_rename::batch_rename_stat,
             tools::batch_rename::batch_rename_execute,
             tools::port_check::port_check_list,
             tools::port_check::port_check_kill,

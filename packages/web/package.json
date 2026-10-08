@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@qingfeng346/ui-kit": "link:../../../ui-kit/ui-kit",
     "@sbox/tools-core": "workspace:*",
     "vue": "catalog:",
     "vue-router": "catalog:"

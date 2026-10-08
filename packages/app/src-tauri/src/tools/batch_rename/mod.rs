@@ -34,18 +34,54 @@ pub struct RenameBatchResult {
     pub failed: usize,
 }
 
+/// 文件元数据，供前端按大小/时间排序。时间戳为 Unix 毫秒，取不到（平台不支持等）为 null。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileMeta {
+    pub size: u64,
+    pub created_ms: Option<i64>,
+    pub modified_ms: Option<i64>,
+}
+
+/// 批量获取文件元数据，与入参顺序一一对应，单个失败对应项为 null。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn batch_rename_stat(paths: Vec<String>) -> Result<Vec<Option<FileMeta>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(paths.iter().map(|path| stat_one(path)).collect())
+    })
+    .await
+    .map_err(|error| format!("读取文件信息任务失败: {error}"))?
+}
+
+fn stat_one(path: &str) -> Option<FileMeta> {
+    let meta = std::fs::metadata(path).ok()?;
+    let to_ms = |time: std::io::Result<std::time::SystemTime>| {
+        time.ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_millis() as i64)
+    };
+    Some(FileMeta {
+        size: meta.len(),
+        created_ms: to_ms(meta.created()),
+        modified_ms: to_ms(meta.modified()),
+    })
+}
+
 /// 判断路径是否为文件夹（拖拽进来的路径需要过滤掉目录）。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn batch_rename_is_dir(path: String) -> Result<bool, String> {
     Ok(std::path::Path::new(&path).is_dir())
 }
 
-/// 列出文件夹的直接子项（含子目录，不递归），按文件名排序。
+/// 列出文件夹的直接子项（recursive=true 时递归收集所有文件，不含子目录），按路径排序。
 #[tauri::command(rename_all = "camelCase")]
-pub async fn batch_rename_list_dir(path: String) -> Result<Vec<DirEntry>, String> {
-    tauri::async_runtime::spawn_blocking(move || list_dir(path))
-        .await
-        .map_err(|error| format!("读取文件夹任务失败: {error}"))?
+pub async fn batch_rename_list_dir(path: String, recursive: bool) -> Result<Vec<DirEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if recursive { walk_dir(path) } else { list_dir(path) }
+    })
+    .await
+    .map_err(|error| format!("读取文件夹任务失败: {error}"))?
 }
 
 fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
@@ -64,6 +100,37 @@ fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
         return Err(format!("文件夹为空或无法读取内容: {path}"));
     }
     items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(items)
+}
+
+/// 递归收集文件夹下所有文件（不含子目录条目）。DirEntry::file_type 不跟随符号链接，
+/// 因此软链目录不会被展开，天然避免循环。
+fn walk_dir(path: String) -> Result<Vec<DirEntry>, String> {
+    let mut items: Vec<DirEntry> = Vec::new();
+    let mut stack = vec![std::path::PathBuf::from(&path)];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            // 单个子目录读取失败（权限等）不中断整体，跳过继续
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if is_dir {
+                stack.push(entry.path());
+            } else {
+                items.push(DirEntry {
+                    path: entry.path().to_string_lossy().to_string(),
+                    name: entry.file_name().to_string_lossy().to_string(),
+                    is_dir,
+                });
+            }
+        }
+    }
+    if items.is_empty() {
+        return Err(format!("文件夹为空或无法读取内容: {path}"));
+    }
+    items.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
     Ok(items)
 }
 
