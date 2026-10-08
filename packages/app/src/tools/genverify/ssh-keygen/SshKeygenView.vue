@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { save } from '@tauri-apps/plugin-dialog'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import { generateSshKey, type SshKeyGenerateResult, type SshKeyType } from './tauri'
 
 type Phase = 'idle' | 'generating' | 'done'
@@ -10,7 +11,6 @@ const keyType = ref<SshKeyType>('ed25519')
 const comment = ref('')
 const passphrase = ref('')
 const passphraseConfirm = ref('')
-const error = ref('')
 const copied = ref('')
 const revealPrivateKey = ref(false)
 const result = ref<SshKeyGenerateResult | null>(null)
@@ -30,7 +30,6 @@ const defaultFileName = computed(() => keyType.value === 'ed25519' ? 'id_ed25519
 const keyTypeLabel = computed(() => keyType.value === 'ed25519' ? 'Ed25519' : 'RSA 4096')
 
 async function submit() {
-  error.value = ''
   if (!canSubmit.value) return
 
   const path = await save({
@@ -52,7 +51,7 @@ async function submit() {
     phase.value = 'done'
   } catch (e: any) {
     phase.value = 'idle'
-    error.value = String(e?.message || e)
+    toast.show('error', String(e?.message || e))
   }
 }
 
@@ -64,14 +63,13 @@ async function copyValue(key: string, value: string) {
       if (copied.value === key) copied.value = ''
     }, 2000)
   } catch (e: any) {
-    error.value = `复制失败: ${String(e?.message || e)}`
+    toast.show('error', `复制失败: ${String(e?.message || e)}`)
   }
 }
 
 function reset() {
   phase.value = 'idle'
   result.value = null
-  error.value = ''
   copied.value = ''
   revealPrivateKey.value = false
 }
@@ -146,7 +144,6 @@ function reset() {
           选择路径并生成
         </button>
       </div>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
     </section>
 
     <section v-else-if="phase === 'generating'" class="card" aria-live="polite">
@@ -227,7 +224,6 @@ function reset() {
       <div class="actions">
         <button type="button" class="btn btn-outline" @click="reset">再生成一对</button>
       </div>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
     </section>
   </div>
 </template>
@@ -254,9 +250,7 @@ function reset() {
 .select-input { cursor: pointer; }
 .input[aria-invalid="true"] { border-color: var(--danger); }
 .helper { display: block; margin-top: 5px; font-size: 12px; color: var(--fg-muted); }
-.inline-error, .error { color: var(--danger); font-size: 13px; }
-.inline-error { display: block; margin-top: 5px; }
-.error { margin: 12px 0 0; }
+.inline-error { color: var(--danger); font-size: 13px; display: block; margin-top: 5px; }
 .actions { display: flex; gap: 12px; margin-top: 12px; }
 .status { margin: 0; }
 .status.success { color: var(--success); font-weight: 600; margin-bottom: 18px; }

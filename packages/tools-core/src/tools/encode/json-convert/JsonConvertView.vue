@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import { convert, validate, detectFormat, FORMAT_LABELS, type DataFormat } from './convert'
 
 const formats: DataFormat[] = ['json', 'yaml', 'toml']
@@ -63,7 +64,7 @@ async function copyOutput() {
     copied.value = true
     setTimeout(() => (copied.value = false), 2000)
   } catch (e: any) {
-    error.value = `复制失败: ${String(e?.message || e)}`
+    toast.show('error', `复制失败: ${String(e?.message || e)}`)
   }
 }
 

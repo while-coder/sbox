@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import { Check, ChevronRight, FolderOpen, Plus, TriangleAlert, X } from 'lucide-vue-next'
 import {
   previewRename,
@@ -31,7 +32,6 @@ const adding = ref(false)
 /** 添加文件夹时是否递归收集子文件夹中的文件 */
 const recursive = ref(false)
 const executing = ref(false)
-const error = ref('')
 
 const preview = computed(() => previewRename(rules.value, files.value.map(f => f.name)))
 
@@ -132,7 +132,6 @@ function parentDir(p: string): string {
 async function addFiles(paths: string[]) {
   if (!paths.length) return
   adding.value = true
-  error.value = ''
   try {
     const flags = await Promise.all(paths.map(p => isDirPath(p).catch(() => false)))
     const seen = new Set(files.value.map(f => f.path.toLowerCase()))
@@ -223,14 +222,12 @@ function sortBy(key: SortKey) {
 }
 
 async function chooseFiles() {
-  error.value = ''
   const selection = await open({ title: '选择要重命名的文件', multiple: true })
   if (Array.isArray(selection)) await addFiles(selection)
   else if (typeof selection === 'string') await addFiles([selection])
 }
 
 async function chooseFolder() {
-  error.value = ''
   const selection = await open({
     title: recursive.value ? '选择文件夹（包含子文件夹中的所有文件）' : '选择文件夹（只添加其中的文件，不含子文件夹）',
     directory: true,
@@ -241,7 +238,7 @@ async function chooseFolder() {
     const entries = await listDirEntries(selection, recursive.value)
     await addFiles(entries.filter(e => !e.isDir).map(e => e.path))
   } catch (e: any) {
-    error.value = String(e?.message || e)
+    toast.show('error', String(e?.message || e))
   }
 }
 
@@ -264,7 +261,6 @@ function toggleExpand(path: string) {
 async function execute() {
   if (!canExecute.value) return
   executing.value = true
-  error.value = ''
   results.value = {}
   try {
     const items = preview.value
@@ -285,7 +281,7 @@ async function execute() {
       }
     }
   } catch (e: any) {
-    error.value = String(e?.message || e)
+    toast.show('error', String(e?.message || e))
   } finally {
     executing.value = false
   }
@@ -341,7 +337,6 @@ onUnmounted(() => {
         </button>
         <span class="toolbar-note">{{ adding ? '正在读取…' : files.length ? `已添加 ${files.length} 个文件` : '尚未添加文件' }}</span>
       </div>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
     </section>
 
     <section class="card workbench">
@@ -463,7 +458,6 @@ h3 { margin: 0; font-size: 14px; }
 .toolbar-note { color: var(--fg-muted); font-size: 13px; }
 .check-inline { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; color: var(--fg-muted); cursor: pointer; user-select: none; }
 .btn-outline.danger:hover { border-color: var(--danger); color: var(--danger); }
-.error { margin: 10px 0 0; font-size: 13px; color: var(--danger); }
 .workbench { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .columns { display: grid; grid-template-columns: minmax(280px, 2fr) minmax(0, 3fr); gap: 20px; flex: 1 1 auto; min-height: 0; }
 .rules-pane { min-width: 0; min-height: 220px; overflow-y: auto; }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, shallowRef } from 'vue'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import JsonNode from './JsonNode.vue'
 
 const input = ref('')
@@ -64,7 +65,7 @@ async function copyInput() {
     await navigator.clipboard.writeText(input.value)
     copied.value = true
     setTimeout(() => (copied.value = false), 2000)
-  } catch (e: any) { error.value = `复制失败: ${String(e?.message || e)}` }
+  } catch (e: any) { toast.show('error', `复制失败: ${String(e?.message || e)}`) }
 }
 
 const stats = computed(() => {

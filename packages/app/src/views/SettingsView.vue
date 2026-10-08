@@ -5,13 +5,10 @@ import { Box, Github, RefreshCw } from 'lucide-vue-next'
 import { settings, saveSettings } from '../shell/settings'
 import { autostartStatus, bossKeyStatus, setAutostart } from '../shell/system'
 import { useUpdater } from '../shell/useUpdater'
+import STabs from '@qingfeng346/ui-kit/components/tabs/STabs.vue'
+import STabPane from '@qingfeng346/ui-kit/components/tabs/STabPane.vue'
 
-const SETTING_TABS = [
-  { key: 'general', label: '通用' },
-  { key: 'shortcuts', label: '快捷键' },
-  { key: 'about', label: '关于' },
-] as const
-type SettingsTab = (typeof SETTING_TABS)[number]['key']
+type SettingsTab = 'general' | 'shortcuts' | 'about'
 
 const activeTab = ref<SettingsTab>('general')
 const {
@@ -109,21 +106,9 @@ onMounted(() => {
   <div class="settings">
     <h2 class="page-title">设置</h2>
 
-    <div class="settings-tabs" role="tablist" aria-label="设置分类">
-      <button
-        v-for="tab in SETTING_TABS"
-        :key="tab.key"
-        type="button"
-        role="tab"
-        :class="{ active: activeTab === tab.key }"
-        :aria-selected="activeTab === tab.key"
-        @click="activeTab = tab.key"
-      >
-        {{ tab.label }}
-      </button>
-    </div>
-
-    <section v-show="activeTab === 'general'" class="card">
+    <STabs v-model="activeTab" type="card" class="settings-stabs">
+      <STabPane name="general" tab="通用">
+        <section class="card">
       <div class="row">
         <div class="row-text">
           <div class="row-label">开机启动</div>
@@ -153,9 +138,11 @@ onMounted(() => {
           <span class="slider"></span>
         </label>
       </div>
-    </section>
+        </section>
+      </STabPane>
 
-    <section v-show="activeTab === 'shortcuts'" class="card">
+      <STabPane name="shortcuts" tab="快捷键">
+        <section class="card">
       <div class="row">
         <div class="row-text">
           <div class="row-label">启用老板键</div>
@@ -203,11 +190,13 @@ onMounted(() => {
       >
         <span class="status-dot"></span>{{ bossKeyStatus.message }}
       </div>
-    </section>
+        </section>
 
-    <p v-show="activeTab === 'shortcuts'" class="hint">CommandOrControl 在 Windows/Linux 上为 Ctrl，在 macOS 上为 ⌘。</p>
+        <p class="hint">CommandOrControl 在 Windows/Linux 上为 Ctrl，在 macOS 上为 ⌘。</p>
+      </STabPane>
 
-    <section v-show="activeTab === 'about'" class="about">
+      <STabPane name="about" tab="关于">
+        <section class="about">
       <header class="about-hero">
         <div class="about-mark" aria-hidden="true"><Box :size="30" stroke-width="1.8" /></div>
         <div class="about-copy">
@@ -243,7 +232,9 @@ onMounted(() => {
         </section>
       </div>
       <p v-if="aboutError" class="about-error" role="alert">{{ aboutError }}</p>
-    </section>
+        </section>
+      </STabPane>
+    </STabs>
   </div>
 </template>
 
@@ -251,20 +242,7 @@ onMounted(() => {
 .settings { max-width: 720px; margin: 0 auto; }
 .page-title { font-size: 18px; font-weight: 600; margin: 0 0 20px; }
 
-.settings-tabs {
-  display: flex; gap: 4px;
-  padding: 4px; margin-bottom: 16px;
-  border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--card);
-}
-.settings-tabs button {
-  flex: 1 1 0; min-height: 36px;
-  border: 0; border-radius: 6px;
-  background: transparent; color: var(--fg-muted);
-  font-size: 13px; font-weight: 600; cursor: pointer;
-}
-.settings-tabs button:hover { background: var(--bg); color: var(--fg); }
-.settings-tabs button.active { background: var(--primary); color: #fff; }
+.settings-stabs { margin-bottom: 16px; }
 
 .card {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { save } from '@tauri-apps/plugin-dialog'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import { generateKeystore, type GenerateResult } from './tauri'
 
 const props = defineProps<{ javaAvailable: boolean | null }>()
@@ -8,7 +9,6 @@ const props = defineProps<{ javaAvailable: boolean | null }>()
 type Phase = 'idle' | 'generating' | 'done'
 
 const phase = ref<Phase>('idle')
-const error = ref('')
 
 const alias = ref('')
 const storePassword = ref('')
@@ -68,7 +68,6 @@ const secretBlock = computed(() => {
 })
 
 async function submit() {
-  error.value = ''
   if (!canSubmit.value) return
 
   const path = await save({
@@ -101,7 +100,7 @@ async function submit() {
     phase.value = 'done'
   } catch (e: any) {
     phase.value = 'idle'
-    error.value = String(e?.message || e)
+    toast.show('error', String(e?.message || e))
   }
 }
 
@@ -113,7 +112,7 @@ async function copyValue(key: string, value: string) {
       if (copiedKey.value === key) copiedKey.value = ''
     }, 2000)
   } catch (e: any) {
-    error.value = `复制失败: ${String(e?.message || e)}`
+    toast.show('error', `复制失败: ${String(e?.message || e)}`)
   }
 }
 
@@ -124,7 +123,6 @@ function reset() {
   storePasswordConfirm.value = ''
   keyPassword.value = ''
   keyPasswordConfirm.value = ''
-  error.value = ''
   copiedKey.value = ''
 }
 </script>
@@ -211,7 +209,6 @@ function reset() {
       <div class="actions">
         <button class="btn" :disabled="!canSubmit" @click="submit">选择路径并生成</button>
       </div>
-      <p v-if="error" class="error">{{ error }}</p>
     </section>
 
     <section v-else-if="phase === 'generating'" class="card">
@@ -286,7 +283,6 @@ function reset() {
       <div class="actions">
         <button class="btn btn-outline" @click="reset">再生成一个</button>
       </div>
-      <p v-if="error" class="error">{{ error }}</p>
     </section>
   </div>
 </template>
@@ -301,7 +297,6 @@ function reset() {
 }
 .hint { font-size: 12px; color: var(--fg-muted); margin: 8px 0 16px; }
 .hint.inline { margin: 0; }
-.error { color: var(--danger); margin: 12px 0 0; font-size: 13px; }
 .inline-err { color: var(--danger); font-size: 12px; margin-left: 4px; }
 
 .card {

@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
+import STabs from '@qingfeng346/ui-kit/components/tabs/STabs.vue'
+import STabPane from '@qingfeng346/ui-kit/components/tabs/STabPane.vue'
 import {
   generateQrDataUrl, decodeQrFromBlob, readClipboardImage,
   type ErrorLevel,
@@ -73,13 +76,12 @@ function onDrop(e: DragEvent) {
 }
 
 async function fromClipboardButton() {
-  error.value = ''
   try {
     const blob = await readClipboardImage()
-    if (!blob) { error.value = '剪贴板里没有图片（或浏览器不支持读取），可改用 Ctrl+V 粘贴'; return }
+    if (!blob) { toast.show('error', '剪贴板里没有图片（或浏览器不支持读取），可改用 Ctrl+V 粘贴'); return }
     await handleBlob(blob)
   } catch (e: any) {
-    error.value = `读取剪贴板失败：${String(e?.message || e)}，可改用 Ctrl+V 粘贴`
+    toast.show('error', `读取剪贴板失败：${String(e?.message || e)}，可改用 Ctrl+V 粘贴`)
   }
 }
 
@@ -102,13 +104,9 @@ async function copyResult() {
     await navigator.clipboard.writeText(scanResult.value)
     copied.value = true
     setTimeout(() => (copied.value = false), 2000)
-  } catch (e: any) { error.value = `复制失败: ${String(e?.message || e)}` }
+  } catch (e: any) { toast.show('error', `复制失败: ${String(e?.message || e)}`) }
 }
 
-const tabs: { key: Tab; label: string }[] = [
-  { key: 'gen', label: '生成' },
-  { key: 'scan', label: '识别' },
-]
 </script>
 
 <template>
@@ -116,73 +114,72 @@ const tabs: { key: Tab; label: string }[] = [
     <h2>二维码生成 / 识别</h2>
     <p class="lead">本机生成二维码，或识别图片中的二维码（支持 Ctrl+V 粘贴、拖拽、选择文件、读取剪贴板）。</p>
 
-    <div class="tab-bar">
-      <button v-for="t in tabs" :key="t.key" class="tab"
-        :class="{ active: activeTab === t.key }" @click="activeTab = t.key">
-        {{ t.label }}
-      </button>
-    </div>
+    <STabs v-model="activeTab">
+      <!-- 生成 -->
+      <STabPane name="gen" tab="生成">
+        <div class="panel gen-grid">
+          <section class="card">
+            <div class="label-row"><span class="label">内容</span><button class="link-btn" @click="genText = ''">清空</button></div>
+            <textarea v-model="genText" class="textarea" rows="6" placeholder="输入文本 / 网址 / 任意字符串…" />
+            <div class="row opts">
+              <label class="field">
+                <span class="label">纠错等级</span>
+                <select v-model="level" class="input">
+                  <option value="L">L（7%）</option>
+                  <option value="M">M（15%）</option>
+                  <option value="Q">Q（25%）</option>
+                  <option value="H">H（30%）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="label">尺寸 {{ size }}px</span>
+                <input v-model.number="size" type="range" min="128" max="640" step="32" />
+              </label>
+            </div>
+          </section>
 
-    <!-- 生成 -->
-    <div v-if="activeTab === 'gen'" class="panel gen-grid">
-      <section class="card">
-        <div class="label-row"><span class="label">内容</span><button class="link-btn" @click="genText = ''">清空</button></div>
-        <textarea v-model="genText" class="textarea" rows="6" placeholder="输入文本 / 网址 / 任意字符串…" />
-        <div class="row opts">
-          <label class="field">
-            <span class="label">纠错等级</span>
-            <select v-model="level" class="input">
-              <option value="L">L（7%）</option>
-              <option value="M">M（15%）</option>
-              <option value="Q">Q（25%）</option>
-              <option value="H">H（30%）</option>
-            </select>
-          </label>
-          <label class="field">
-            <span class="label">尺寸 {{ size }}px</span>
-            <input v-model.number="size" type="range" min="128" max="640" step="32" />
-          </label>
+          <section class="card preview-card">
+            <div v-if="qrDataUrl" class="qr-wrap">
+              <img :src="qrDataUrl" class="qr-img" alt="二维码" />
+              <button class="btn" @click="savePng">保存为 PNG…</button>
+            </div>
+            <p v-else class="placeholder">输入内容后这里会显示二维码</p>
+          </section>
         </div>
-      </section>
+      </STabPane>
 
-      <section class="card preview-card">
-        <div v-if="qrDataUrl" class="qr-wrap">
-          <img :src="qrDataUrl" class="qr-img" alt="二维码" />
-          <button class="btn" @click="savePng">保存为 PNG…</button>
-        </div>
-        <p v-else class="placeholder">输入内容后这里会显示二维码</p>
-      </section>
-    </div>
+      <!-- 识别 -->
+      <STabPane name="scan" tab="识别">
+        <div class="panel scan-grid">
+          <section
+            class="card dropzone"
+            @drop.prevent="onDrop"
+            @dragover.prevent
+          >
+            <p class="dz-title">拖拽图片到此 · 或 Ctrl+V 粘贴</p>
+            <div class="row dz-actions">
+              <label class="btn btn-outline file-label">
+                选择图片<input type="file" accept="image/*" class="hidden-file" @change="onFilePicked" />
+              </label>
+              <button class="btn btn-outline" @click="fromClipboardButton">读取剪贴板</button>
+            </div>
+            <div v-if="scanPreview" class="preview">
+              <img :src="scanPreview" class="scan-img" alt="待识别图片" />
+            </div>
+          </section>
 
-    <!-- 识别 -->
-    <div v-else class="panel scan-grid">
-      <section
-        class="card dropzone"
-        @drop.prevent="onDrop"
-        @dragover.prevent
-      >
-        <p class="dz-title">拖拽图片到此 · 或 Ctrl+V 粘贴</p>
-        <div class="row dz-actions">
-          <label class="btn btn-outline file-label">
-            选择图片<input type="file" accept="image/*" class="hidden-file" @change="onFilePicked" />
-          </label>
-          <button class="btn btn-outline" @click="fromClipboardButton">读取剪贴板</button>
+          <section class="card">
+            <div class="label-row">
+              <span class="label">识别结果</span>
+              <button class="link-btn" :disabled="!scanResult" @click="copyResult">{{ copied ? '已复制 ✓' : '复制' }}</button>
+            </div>
+            <textarea v-model="scanResult" class="textarea" rows="8" readonly
+              :placeholder="scanBusy ? '识别中…' : '识别到的内容会显示在此处'" />
+            <p v-if="scanned && !scanResult && !scanBusy" class="hint bad">未在图片中识别到二维码</p>
+          </section>
         </div>
-        <div v-if="scanPreview" class="preview">
-          <img :src="scanPreview" class="scan-img" alt="待识别图片" />
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="label-row">
-          <span class="label">识别结果</span>
-          <button class="link-btn" :disabled="!scanResult" @click="copyResult">{{ copied ? '已复制 ✓' : '复制' }}</button>
-        </div>
-        <textarea v-model="scanResult" class="textarea" rows="8" readonly
-          :placeholder="scanBusy ? '识别中…' : '识别到的内容会显示在此处'" />
-        <p v-if="scanned && !scanResult && !scanBusy" class="hint bad">未在图片中识别到二维码</p>
-      </section>
-    </div>
+      </STabPane>
+    </STabs>
 
     <p v-if="error" class="error">{{ error }}</p>
   </div>
@@ -191,15 +188,6 @@ const tabs: { key: Tab; label: string }[] = [
 <style scoped>
 .tool { max-width: 92%; margin: 0 auto; }
 .lead { color: var(--fg-muted); margin-bottom: 16px; }
-
-.tab-bar { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
-.tab {
-  padding: 8px 16px; background: none; border: none; border-bottom: 2px solid transparent;
-  margin-bottom: -1px; cursor: pointer; font-size: 13px; font-weight: 500;
-  color: var(--fg-muted); font-family: inherit;
-}
-.tab:hover { color: var(--fg); }
-.tab.active { color: var(--fg); border-bottom-color: var(--primary); }
 
 .card {
   background: var(--card);

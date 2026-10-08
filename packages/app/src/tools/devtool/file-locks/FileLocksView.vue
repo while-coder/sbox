@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import { checkFileLocks, type FileLocksCheckResult } from './tauri'
 
 const path = ref('')
 const checking = ref(false)
-const error = ref('')
 const result = ref<FileLocksCheckResult | null>(null)
 const canCheck = computed(() => path.value.trim().length > 0 && !checking.value)
 
 async function choosePath(directory: boolean) {
-  error.value = ''
   const selection = await open({
     title: directory ? '选择要检查的文件夹' : '选择要检查的文件',
     directory,
@@ -25,13 +24,12 @@ async function choosePath(directory: boolean) {
 async function check() {
   if (!canCheck.value) return
   checking.value = true
-  error.value = ''
   result.value = null
   try {
     result.value = await checkFileLocks(path.value.trim())
     path.value = result.value.path
   } catch (e: any) {
-    error.value = String(e?.message || e)
+    toast.show('error', String(e?.message || e))
   } finally {
     checking.value = false
   }
@@ -41,7 +39,7 @@ async function copy(value: string) {
   try {
     await navigator.clipboard.writeText(value)
   } catch (e: any) {
-    error.value = `复制失败: ${String(e?.message || e)}`
+    toast.show('error', `复制失败: ${String(e?.message || e)}`)
   }
 }
 </script>
@@ -70,7 +68,6 @@ async function copy(value: string) {
         </button>
       </div>
       <p class="helper">文件夹会检查其下文件；大型目录扫描到 4,096 个条目时会停止并标记结果不完整。Windows 原生接口无法直接查询仅被文件夹句柄占用的情况。</p>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
     </section>
 
     <section v-if="result" class="card result" aria-live="polite">
@@ -114,9 +111,8 @@ label { display: block; margin-bottom: 8px; font-size: 13px; color: var(--fg-mut
 .path-row { display: flex; gap: 8px; align-items: center; }
 .input { min-width: 0; flex: 1 1 auto; min-height: 38px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--fg); font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .input:focus-visible, button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.helper, .error, .warning, .empty { margin: 10px 0 0; font-size: 13px; }
+.helper, .warning, .empty { margin: 10px 0 0; font-size: 13px; }
 .helper { color: var(--fg-muted); }
-.error { color: var(--danger); }
 .warning { padding: 10px 12px; border: 1px solid #d97706; border-radius: 5px; color: #a15c06; background: color-mix(in srgb, #d97706 8%, var(--card)); }
 .result-heading { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
 .result-heading h3 { margin: 0; font-size: 16px; }

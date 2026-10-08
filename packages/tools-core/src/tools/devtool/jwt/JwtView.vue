@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import { decodeJwt, type DecodedJwt } from './jwt'
 
 const input = ref('')
@@ -27,7 +28,7 @@ async function copyValue(key: string, value: string) {
     copiedKey.value = key
     setTimeout(() => { if (copiedKey.value === key) copiedKey.value = '' }, 2000)
   } catch (e: any) {
-    error.value = `复制失败: ${String(e?.message || e)}`
+    toast.show('error', `复制失败: ${String(e?.message || e)}`)
   }
 }
 </script>

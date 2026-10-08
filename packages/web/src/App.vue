@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
 import { computed } from 'vue'
+// 深路径按需导入：从包入口导入会把全部组件拖进主包
+import SMessageHost from '@qingfeng346/ui-kit/components/SMessageHost.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,6 +19,8 @@ const isHome = computed(() => route.path === '/')
     <main class="app-main">
       <router-view />
     </main>
+    <!-- toast / confirm / loading 的全局渲染宿主 -->
+    <SMessageHost />
   </div>
 </template>
 

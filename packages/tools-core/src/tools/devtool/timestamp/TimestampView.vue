@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 
 // ── 实时当前时间 ──────────────────────────────────────────
 const nowMs = ref(Date.now())
@@ -13,7 +14,6 @@ const nowSeconds = computed(() => Math.floor(nowMs.value / 1000))
 const tsInput = ref('')
 const tsUnit = ref<'s' | 'ms'>('s')
 const tzMode = ref<'local' | 'utc'>('local')
-const error = ref('')
 const copiedKey = ref('')
 
 const parsedDate = computed<Date | null>(() => {
@@ -94,7 +94,7 @@ async function copyValue(key: string, value: string) {
     copiedKey.value = key
     setTimeout(() => { if (copiedKey.value === key) copiedKey.value = '' }, 2000)
   } catch (e: any) {
-    error.value = `复制失败: ${String(e?.message || e)}`
+    toast.show('error', `复制失败: ${String(e?.message || e)}`)
   }
 }
 </script>
@@ -187,8 +187,6 @@ async function copyValue(key: string, value: string) {
         <p v-else-if="dateInput" class="hint bad">无法解析为日期</p>
       </section>
     </div>
-
-    <p v-if="error" class="error">{{ error }}</p>
   </div>
 </template>
 
@@ -265,8 +263,6 @@ async function copyValue(key: string, value: string) {
   font-size: 12px; color: var(--fg-muted); cursor: pointer; flex: 0 0 auto;
 }
 .link-btn:hover:not(:disabled) { color: var(--primary); }
-
-.error { color: var(--danger); margin: 12px 0 0; font-size: 13px; }
 
 @media (max-width: 700px) {
   .io-grid { grid-template-columns: 1fr; }

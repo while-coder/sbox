@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import {
   deleteEnvVar,
   listEnvVars,
@@ -32,7 +33,6 @@ interface EditDialogState {
 const tab = ref<ToolTab>('user')
 const data = ref<EnvVarsListResult | null>(null)
 const loading = ref(false)
-const error = ref('')
 const status = ref('')
 const query = ref('')
 const unsupported = ref(false)
@@ -156,12 +156,11 @@ async function load(target: EnvVarScope, options: { silent?: boolean } = {}) {
     expanded.value = new Set()
   }
   loading.value = true
-  error.value = ''
   try {
     data.value = await listEnvVars(target)
   } catch (e: any) {
     const message = String(e?.message || e)
-    error.value = message
+    toast.show('error', message)
     if (message.includes('仅支持 Windows')) unsupported.value = true
   } finally {
     loading.value = false
@@ -230,12 +229,11 @@ function askDelete(name: string) {
 }
 
 async function remove(name: string) {
-  error.value = ''
   try {
     await deleteEnvVar(tab.value as EnvVarScope, name)
     showStatus(`已删除 ${name}，新启动的程序会立即生效`)
   } catch (e: any) {
-    error.value = String(e?.message || e)
+    toast.show('error', String(e?.message || e))
   } finally {
     pendingDelete.value = null
     window.clearTimeout(pendingDeleteTimer)
@@ -299,7 +297,7 @@ async function copy(value: string) {
     await navigator.clipboard.writeText(value)
     showStatus('已复制到剪贴板')
   } catch (e: any) {
-    error.value = `复制失败: ${String(e?.message || e)}`
+    toast.show('error', `复制失败: ${String(e?.message || e)}`)
   }
 }
 
@@ -436,7 +434,6 @@ onUnmounted(() => {
         </div>
 
         <p v-if="status" class="status" aria-live="polite">{{ status }}</p>
-        <p v-if="error" class="error" role="alert">{{ error }}</p>
 
         <div v-if="filteredVars.length" class="vars">
           <article v-for="entry in filteredVars" :key="entry.name" class="var-row">

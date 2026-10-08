@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import { startScreenshot } from './screenshot'
 import { settings, saveSettings } from '../../../shell/settings'
 import { screenshotKeyStatus, shortcutsRefreshing } from '../../../shell/system'
 
-const error = ref('')
 const recordingKey = ref(false)
 
 const PRESETS = [
@@ -47,11 +47,10 @@ function selectPreset(key: string) {
 }
 
 async function shoot() {
-  error.value = ''
   try {
     await startScreenshot()
   } catch (e: any) {
-    error.value = `截图失败：${String(e?.message || e)}`
+    toast.show('error', `截图失败：${String(e?.message || e)}`)
   }
 }
 </script>
@@ -125,8 +124,6 @@ async function shoot() {
         </label>
       </div>
     </section>
-
-    <p v-if="error" class="error">{{ error }}</p>
   </div>
 </template>
 
@@ -178,7 +175,6 @@ kbd {
   background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
   padding: 1px 6px; font: 12px ui-monospace, Consolas, monospace;
 }
-.error { color: var(--danger); margin: 12px 0 0; font-size: 13px; }
 @media (max-width: 560px) {
   .settings-card { padding: 4px 16px; }
   .row { align-items: flex-start; }

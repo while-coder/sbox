@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import { GDRIVE_SCOPES, oauthLogin, type GdriveCreds } from './tauri'
 import { saveTextFile } from '../../../platform/save'
 
 type Phase = 'idle' | 'logging_in' | 'done'
 
 const phase = ref<Phase>('idle')
-const error = ref('')
 const clientId = ref('')
 const clientSecret = ref('')
 const selectedScopes = ref<string[]>([GDRIVE_SCOPES.drive])
@@ -43,7 +43,6 @@ const authFileJson = computed(() => {
 })
 
 async function start() {
-  error.value = ''
   copiedKey.value = ''
   savedHint.value = ''
   phase.value = 'logging_in'
@@ -53,7 +52,7 @@ async function start() {
     phase.value = 'done'
   } catch (e: any) {
     phase.value = 'idle'
-    error.value = String(e?.message || e)
+    toast.show('error', String(e?.message || e))
   }
 }
 
@@ -63,7 +62,7 @@ async function saveAuthFile() {
     const ok = await saveTextFile(authFileJson.value, 'gdrive_token.json')
     if (ok) savedHint.value = '已保存，把该文件路径作为 --auth 参数传入即可'
   } catch (e: any) {
-    error.value = `保存失败: ${String(e?.message || e)}`
+    toast.show('error', `保存失败: ${String(e?.message || e)}`)
   }
 }
 
@@ -75,14 +74,13 @@ async function copyValue(key: string, value: string) {
       if (copiedKey.value === key) copiedKey.value = ''
     }, 2000)
   } catch (e: any) {
-    error.value = `复制失败: ${String(e?.message || e)}`
+    toast.show('error', `复制失败: ${String(e?.message || e)}`)
   }
 }
 
 function reset() {
   phase.value = 'idle'
   creds.value = null
-  error.value = ''
   copiedKey.value = ''
   savedHint.value = ''
 }
@@ -169,7 +167,6 @@ function reset() {
         <a class="link" href="https://myaccount.google.com/permissions" target="_blank" rel="noreferrer">账号权限页</a>
         撤销后重试。调整授权范围后需重新登录才会生效。
       </p>
-      <p v-if="error" class="error">{{ error }}</p>
     </section>
 
     <section v-else-if="phase === 'logging_in'" class="card">
@@ -218,7 +215,6 @@ function reset() {
       <div class="actions">
         <button class="btn btn-outline" @click="reset">返回</button>
       </div>
-      <p v-if="error" class="error">{{ error }}</p>
     </section>
   </div>
 </template>
@@ -233,7 +229,6 @@ function reset() {
 .status { font-size: 14px; margin-bottom: 12px; }
 .status.success { color: var(--success); font-weight: 500; margin-bottom: 16px; }
 .hint { font-size: 12px; color: var(--fg-muted); margin: 12px 0 0; line-height: 1.6; }
-.error { color: var(--danger); margin: 12px 0 0; font-size: 13px; }
 
 .guide {
   margin: 0 0 4px; padding-left: 22px;

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { confirm, toast } from '@qingfeng346/ui-kit/composables/message'
 import { killProcess, listPort, type PortCheckResult } from './tauri'
 
 const port = ref('')
 const checking = ref(false)
 const killing = ref<number | null>(null)
-const error = ref('')
 const result = ref<PortCheckResult | null>(null)
 
 const parsedPort = computed(() => {
@@ -17,11 +17,10 @@ const canCheck = computed(() => parsedPort.value !== null && !checking.value)
 async function check() {
   if (!canCheck.value) return
   checking.value = true
-  error.value = ''
   try {
     result.value = await listPort(parsedPort.value!)
   } catch (e: any) {
-    error.value = String(e?.message || e)
+    toast.show('error', String(e?.message || e))
     result.value = null
   } finally {
     checking.value = false
@@ -30,14 +29,14 @@ async function check() {
 
 async function kill(pid: number, name: string) {
   if (killing.value !== null) return
-  if (!window.confirm(`确定强制结束进程 ${name}（PID ${pid}）吗？未保存的数据会丢失。`)) return
+  const ok = await confirm.show({ title: '强制结束进程', content: `确定强制结束进程 ${name}（PID ${pid}）吗？未保存的数据会丢失。` })
+  if (!ok) return
   killing.value = pid
-  error.value = ''
   try {
     await killProcess(pid)
     await check()
   } catch (e: any) {
-    error.value = String(e?.message || e)
+    toast.show('error', String(e?.message || e))
   } finally {
     killing.value = null
   }
@@ -69,7 +68,6 @@ async function kill(pid: number, name: string) {
       </div>
       <p class="helper">同时检查 TCP 与 UDP 的 IPv4 / IPv6 监听及连接；结果不自动刷新，可再次点击检查。</p>
       <p v-if="port.trim() && parsedPort === null" class="error" role="alert">请输入 1 - 65535 之间的整数端口号</p>
-      <p v-else-if="error" class="error" role="alert">{{ error }}</p>
     </section>
 
     <section v-if="result" class="card result" aria-live="polite">

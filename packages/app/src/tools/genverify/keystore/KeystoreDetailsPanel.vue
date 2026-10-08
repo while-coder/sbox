@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import { fileInfo, type FileInfoResult, type KeystoreEntry } from './tauri'
 
 const props = defineProps<{ javaAvailable: boolean | null }>()
@@ -97,7 +98,7 @@ async function copyValue(key: string, value: string) {
       if (copiedKey.value === key) copiedKey.value = ''
     }, 2000)
   } catch (e: any) {
-    error.value = `复制失败: ${String(e?.message || e)}`
+    toast.show('error', `复制失败: ${String(e?.message || e)}`)
   }
 }
 

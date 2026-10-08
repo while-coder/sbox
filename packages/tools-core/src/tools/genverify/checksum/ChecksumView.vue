@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
 import { hashFile, hashString, formatBytes, type HashAlgorithm } from '../../encode/codec/codec'
 
 type Source = 'file' | 'text'
 const source = ref<Source>('file')
 const algo = ref<HashAlgorithm>('sha256')
-const error = ref('')
 const busy = ref(false)
 const copied = ref(false)
 
@@ -33,18 +33,17 @@ function onPick(e: Event) {
 }
 
 async function compute() {
-  error.value = ''
   busy.value = true
   try {
     if (source.value === 'file') {
-      if (!picked.value) { error.value = '请先选择文件'; return }
+      if (!picked.value) { toast.show('error', '请先选择文件'); return }
       actual.value = await hashFile(picked.value, algo.value)
     } else {
       actual.value = await hashString(textInput.value, algo.value)
     }
   } catch (e: any) {
     actual.value = ''
-    error.value = String(e?.message || e)
+    toast.show('error', String(e?.message || e))
   } finally {
     busy.value = false
   }
@@ -57,7 +56,7 @@ async function copyActual() {
     copied.value = true
     setTimeout(() => (copied.value = false), 2000)
   } catch (e: any) {
-    error.value = `复制失败: ${String(e?.message || e)}`
+    toast.show('error', `复制失败: ${String(e?.message || e)}`)
   }
 }
 
@@ -116,8 +115,6 @@ const algos: { v: HashAlgorithm; label: string }[] = [
         {{ verdict ? '✓ 匹配：哈希一致' : '✗ 不匹配：哈希不一致' }}
       </div>
     </section>
-
-    <p v-if="error" class="error">{{ error }}</p>
   </div>
 </template>
 
@@ -190,6 +187,4 @@ const algos: { v: HashAlgorithm; label: string }[] = [
 }
 .link-btn:hover:not(:disabled) { color: var(--primary); }
 .link-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.error { color: var(--danger); margin: 4px 0 0; font-size: 13px; }
 </style>

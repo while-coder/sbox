@@ -4,6 +4,8 @@ import { useKeytoolCheck } from '../../../shell/use-keytool'
 import KeytoolHint from '../../../shell/KeytoolHint.vue'
 import KeystoreGenPanel from './KeystoreGenPanel.vue'
 import KeystoreDetailsPanel from './KeystoreDetailsPanel.vue'
+import STabs from '@qingfeng346/ui-kit/components/tabs/STabs.vue'
+import STabPane from '@qingfeng346/ui-kit/components/tabs/STabPane.vue'
 
 type Tab = 'details' | 'gen'
 
@@ -20,13 +22,14 @@ const { javaAvailable, javaPath } = useKeytoolCheck()
 
     <KeytoolHint :available="javaAvailable" :path="javaPath" />
 
-    <div class="tabs">
-      <button class="tab" :class="{ active: tab === 'details' }" @click="tab = 'details'">文件详情</button>
-      <button class="tab" :class="{ active: tab === 'gen' }" @click="tab = 'gen'">生成 Keystore</button>
-    </div>
-
-    <KeystoreDetailsPanel v-if="tab === 'details'" :java-available="javaAvailable" />
-    <KeystoreGenPanel v-else-if="tab === 'gen'" :java-available="javaAvailable" />
+    <STabs v-model="tab" class="ksv-tabs">
+      <STabPane name="details" tab="文件详情" displayDirective="destroy">
+        <KeystoreDetailsPanel :java-available="javaAvailable" />
+      </STabPane>
+      <STabPane name="gen" tab="生成 Keystore" displayDirective="destroy">
+        <KeystoreGenPanel :java-available="javaAvailable" />
+      </STabPane>
+    </STabs>
   </div>
 </template>
 
@@ -34,18 +37,5 @@ const { javaAvailable, javaPath } = useKeytoolCheck()
 .ksv { max-width: 720px; margin: 0 auto; }
 .lead { color: var(--fg-muted); margin-bottom: 16px; }
 
-.tabs {
-  display: flex; gap: 4px; margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-}
-.tab {
-  padding: 8px 16px; font-size: 13px; cursor: pointer;
-  background: none; border: none; color: var(--fg-muted);
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
-}
-.tab:hover { color: var(--fg); }
-.tab.active {
-  color: var(--primary); font-weight: 500;
-  border-bottom-color: var(--primary);
-}
+.ksv-tabs { margin-bottom: 16px; }
 </style>

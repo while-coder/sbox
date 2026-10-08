@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { toast } from '@qingfeng346/ui-kit/composables/message'
+import STabs from '@qingfeng346/ui-kit/components/tabs/STabs.vue'
+import STabPane from '@qingfeng346/ui-kit/components/tabs/STabPane.vue'
 import {
   stringToBase64, base64ToString, base64ToBase64Url, base64UrlToBase64,
   base64ToBytes,
@@ -23,7 +26,6 @@ const copiedKey = ref('')
 // ── 共享输入 / 输出（文本 & Base64 tab 共用）──────────────
 const textInput = ref('')
 const textOutput = ref('')
-const showIO = computed(() => activeTab.value === 'text' || activeTab.value === 'base64')
 
 function safeRun(fn: () => string) {
   error.value = ''
@@ -138,15 +140,9 @@ async function copyValue(key: string, value: string) {
     copiedKey.value = key
     setTimeout(() => { if (copiedKey.value === key) copiedKey.value = '' }, 2000)
   } catch (e: any) {
-    error.value = `复制失败: ${String(e?.message || e)}`
+    toast.show('error', `复制失败: ${String(e?.message || e)}`)
   }
 }
-
-const tabs: { key: Tab; label: string }[] = [
-  { key: 'text', label: '文本' },
-  { key: 'base64', label: 'Base64' },
-  { key: 'hash', label: '哈希' },
-]
 </script>
 
 <template>
@@ -154,157 +150,180 @@ const tabs: { key: Tab; label: string }[] = [
     <h2>编解码工具</h2>
     <p class="lead">常见编解码与哈希。所有计算在本机完成，文件不会离开本机。</p>
 
-    <div class="tab-bar">
-      <button
-        v-for="t in tabs"
-        :key="t.key"
-        class="tab"
-        :class="{ active: activeTab === t.key }"
-        @click="activeTab = t.key"
-      >{{ t.label }}</button>
-    </div>
-
-    <!-- 共享输入 / 输出（文本 & Base64）-->
-    <section v-if="showIO" class="card io-card">
-      <div class="io-grid">
-        <div class="io-col">
-          <div class="label-row">
-            <span class="label">输入</span>
-            <button class="link-btn" @click="textInput = ''">清空</button>
+    <STabs v-model="activeTab">
+      <!-- ===== 文本 Tab ===== -->
+      <STabPane name="text" tab="文本">
+        <!-- 共享输入 / 输出（文本 & Base64 共用，绑定同一组状态）-->
+        <section class="card io-card">
+          <div class="io-grid">
+            <div class="io-col">
+              <div class="label-row">
+                <span class="label">输入</span>
+                <button class="link-btn" @click="textInput = ''">清空</button>
+              </div>
+              <textarea v-model="textInput" class="textarea" rows="7" placeholder="在此粘贴或输入文本…" />
+            </div>
+            <div class="io-col">
+              <div class="label-row">
+                <span class="label">输出</span>
+                <span class="actions-inline">
+                  <button class="link-btn" @click="swapTextIO" :disabled="!textOutput">⇄ 交换</button>
+                  <button class="link-btn" @click="copyValue('textOutput', textOutput)" :disabled="!textOutput">
+                    {{ copiedKey === 'textOutput' ? '已复制 ✓' : '复制' }}
+                  </button>
+                </span>
+              </div>
+              <textarea v-model="textOutput" class="textarea" rows="7" readonly />
+            </div>
           </div>
-          <textarea v-model="textInput" class="textarea" rows="7" placeholder="在此粘贴或输入文本…" />
+        </section>
+
+        <div class="panel">
+          <div class="op-grid">
+            <section class="card op-card">
+              <h3 class="group-title">URL</h3>
+              <div class="btn-col">
+                <button class="btn" @click="safeRun(() => urlEncode(textInput))">URL Encode</button>
+                <button class="btn" @click="safeRun(() => urlDecode(textInput))">URL Decode</button>
+              </div>
+            </section>
+
+            <section class="card op-card">
+              <h3 class="group-title">Hex</h3>
+              <div class="btn-col">
+                <button class="btn" @click="safeRun(() => stringToHex(textInput))">字符串 → Hex</button>
+                <button class="btn" @click="safeRun(() => hexToString(textInput))">Hex → 字符串</button>
+              </div>
+            </section>
+
+            <section class="card op-card">
+              <h3 class="group-title">HTML</h3>
+              <div class="btn-col">
+                <button class="btn" @click="safeRun(() => htmlEncode(textInput))">HTML Escape</button>
+                <button class="btn" @click="safeRun(() => htmlDecode(textInput))">HTML Unescape</button>
+              </div>
+            </section>
+
+            <section class="card op-card">
+              <h3 class="group-title">Unicode</h3>
+              <div class="btn-col">
+                <button class="btn" @click="safeRun(() => unicodeEscape(textInput))">Unicode Escape</button>
+                <button class="btn" @click="safeRun(() => unicodeUnescape(textInput))">Unicode Unescape</button>
+              </div>
+            </section>
+          </div>
         </div>
-        <div class="io-col">
-          <div class="label-row">
-            <span class="label">输出</span>
-            <span class="actions-inline">
-              <button class="link-btn" @click="swapTextIO" :disabled="!textOutput">⇄ 交换</button>
-              <button class="link-btn" @click="copyValue('textOutput', textOutput)" :disabled="!textOutput">
-                {{ copiedKey === 'textOutput' ? '已复制 ✓' : '复制' }}
+      </STabPane>
+
+      <!-- ===== Base64 Tab ===== -->
+      <STabPane name="base64" tab="Base64">
+        <!-- 共享输入 / 输出（与文本页签共用同一组状态）-->
+        <section class="card io-card">
+          <div class="io-grid">
+            <div class="io-col">
+              <div class="label-row">
+                <span class="label">输入</span>
+                <button class="link-btn" @click="textInput = ''">清空</button>
+              </div>
+              <textarea v-model="textInput" class="textarea" rows="7" placeholder="在此粘贴或输入文本…" />
+            </div>
+            <div class="io-col">
+              <div class="label-row">
+                <span class="label">输出</span>
+                <span class="actions-inline">
+                  <button class="link-btn" @click="swapTextIO" :disabled="!textOutput">⇄ 交换</button>
+                  <button class="link-btn" @click="copyValue('textOutput', textOutput)" :disabled="!textOutput">
+                    {{ copiedKey === 'textOutput' ? '已复制 ✓' : '复制' }}
+                  </button>
+                </span>
+              </div>
+              <textarea v-model="textOutput" class="textarea" rows="7" readonly />
+            </div>
+          </div>
+        </section>
+
+        <div class="panel">
+          <section class="card">
+            <h3 class="group-title">字符串 ⇄ Base64（作用于上方输入/输出）</h3>
+            <div class="row">
+              <button class="btn" @click="safeRun(() => stringToBase64(textInput))">字符串 → Base64</button>
+              <button class="btn" @click="safeRun(() => base64ToString(textInput))">Base64 → 字符串</button>
+              <button class="btn btn-outline" @click="safeRun(() => base64ToBase64Url(textInput))">Base64 → URL-safe</button>
+              <button class="btn btn-outline" @click="safeRun(() => base64UrlToBase64(textInput))">URL-safe → Base64</button>
+            </div>
+          </section>
+
+          <div class="file-grid">
+            <section class="card">
+              <h3 class="group-title">文件 → Base64</h3>
+              <div class="row">
+                <input type="file" @change="onEncFilePicked" />
+                <button class="btn" :disabled="!encFile || encBusy" @click="doEncode">{{ encBusy ? '编码中…' : '编码' }}</button>
+              </div>
+              <div v-if="encFileInfo" class="meta meta-block">{{ encFileInfo }}</div>
+              <textarea v-model="encB64" class="textarea" rows="6" readonly placeholder="编码结果将显示在此处" />
+              <div v-if="encB64" class="row">
+                <button class="link-btn" @click="copyValue('encB64', encB64)">
+                  {{ copiedKey === 'encB64' ? '已复制 ✓' : '复制' }}
+                </button>
+                <button class="link-btn" @click="saveEncTxt">另存为 .b64.txt</button>
+              </div>
+            </section>
+
+            <section class="card">
+              <h3 class="group-title">Base64 → 文件</h3>
+              <textarea v-model="decB64Input" class="textarea" rows="6" placeholder="在此粘贴 Base64 文本（可包含 data URL 头）" />
+              <div class="row row-spaced">
+                <input v-model="decFilename" class="input filename-input" placeholder="filename.bin" />
+                <button class="btn" :disabled="!decB64Input" @click="doDecodeSave">保存文件…</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </STabPane>
+
+      <!-- ===== 哈希 Tab ===== -->
+      <STabPane name="hash" tab="哈希">
+        <div class="panel">
+          <section class="card">
+            <div class="row row-between">
+              <div class="seg">
+                <h3 class="group-title group-title-inline">哈希</h3>
+                <label class="radio"><input type="radio" value="text" v-model="hashSource" /> 文本</label>
+                <label class="radio"><input type="radio" value="file" v-model="hashSource" /> 文件</label>
+              </div>
+              <select v-model="hashAlgo" class="input algo-select">
+                <option value="md5">MD5</option>
+                <option value="sha1">SHA-1</option>
+                <option value="sha256">SHA-256</option>
+                <option value="sha512">SHA-512</option>
+              </select>
+            </div>
+
+            <textarea v-if="hashSource === 'text'" v-model="hashText" class="textarea" rows="4" placeholder="在此输入要哈希的文本…" />
+            <div v-else class="row src-row"><input type="file" @change="onHashFilePicked" /></div>
+            <div v-if="hashSource === 'file' && hashFileInfo" class="meta meta-block">{{ hashFileInfo }}</div>
+
+            <div class="row row-spaced">
+              <button class="btn" :disabled="hashBusy" @click="doHash">{{ hashBusy ? '计算中…' : '计算' }}</button>
+              <input v-model="hashOutput" readonly class="input mono input-grow" placeholder="结果将显示在此处" />
+              <button v-if="hashOutput" class="link-btn" @click="copyValue('hashOut', hashOutput)">
+                {{ copiedKey === 'hashOut' ? '已复制 ✓' : '复制' }}
               </button>
-            </span>
-          </div>
-          <textarea v-model="textOutput" class="textarea" rows="7" readonly />
+            </div>
+          </section>
+
+          <section class="card">
+            <h3 class="group-title">字节大小</h3>
+            <div class="row">
+              <input v-model="bytesInput" class="input input-grow" placeholder="1048576" />
+              <button class="btn" @click="fmtBytes">格式化</button>
+              <input v-model="bytesOutput" readonly class="input input-grow" />
+            </div>
+          </section>
         </div>
-      </div>
-    </section>
-
-    <!-- ===== 文本 Tab ===== -->
-    <div v-if="activeTab === 'text'" class="panel">
-      <div class="op-grid">
-        <section class="card op-card">
-          <h3 class="group-title">URL</h3>
-          <div class="btn-col">
-            <button class="btn" @click="safeRun(() => urlEncode(textInput))">URL Encode</button>
-            <button class="btn" @click="safeRun(() => urlDecode(textInput))">URL Decode</button>
-          </div>
-        </section>
-
-        <section class="card op-card">
-          <h3 class="group-title">Hex</h3>
-          <div class="btn-col">
-            <button class="btn" @click="safeRun(() => stringToHex(textInput))">字符串 → Hex</button>
-            <button class="btn" @click="safeRun(() => hexToString(textInput))">Hex → 字符串</button>
-          </div>
-        </section>
-
-        <section class="card op-card">
-          <h3 class="group-title">HTML</h3>
-          <div class="btn-col">
-            <button class="btn" @click="safeRun(() => htmlEncode(textInput))">HTML Escape</button>
-            <button class="btn" @click="safeRun(() => htmlDecode(textInput))">HTML Unescape</button>
-          </div>
-        </section>
-
-        <section class="card op-card">
-          <h3 class="group-title">Unicode</h3>
-          <div class="btn-col">
-            <button class="btn" @click="safeRun(() => unicodeEscape(textInput))">Unicode Escape</button>
-            <button class="btn" @click="safeRun(() => unicodeUnescape(textInput))">Unicode Unescape</button>
-          </div>
-        </section>
-      </div>
-    </div>
-
-    <!-- ===== Base64 Tab ===== -->
-    <div v-if="activeTab === 'base64'" class="panel">
-      <section class="card">
-        <h3 class="group-title">字符串 ⇄ Base64（作用于上方输入/输出）</h3>
-        <div class="row">
-          <button class="btn" @click="safeRun(() => stringToBase64(textInput))">字符串 → Base64</button>
-          <button class="btn" @click="safeRun(() => base64ToString(textInput))">Base64 → 字符串</button>
-          <button class="btn btn-outline" @click="safeRun(() => base64ToBase64Url(textInput))">Base64 → URL-safe</button>
-          <button class="btn btn-outline" @click="safeRun(() => base64UrlToBase64(textInput))">URL-safe → Base64</button>
-        </div>
-      </section>
-
-      <div class="file-grid">
-        <section class="card">
-          <h3 class="group-title">文件 → Base64</h3>
-          <div class="row">
-            <input type="file" @change="onEncFilePicked" />
-            <button class="btn" :disabled="!encFile || encBusy" @click="doEncode">{{ encBusy ? '编码中…' : '编码' }}</button>
-          </div>
-          <div v-if="encFileInfo" class="meta meta-block">{{ encFileInfo }}</div>
-          <textarea v-model="encB64" class="textarea" rows="6" readonly placeholder="编码结果将显示在此处" />
-          <div v-if="encB64" class="row">
-            <button class="link-btn" @click="copyValue('encB64', encB64)">
-              {{ copiedKey === 'encB64' ? '已复制 ✓' : '复制' }}
-            </button>
-            <button class="link-btn" @click="saveEncTxt">另存为 .b64.txt</button>
-          </div>
-        </section>
-
-        <section class="card">
-          <h3 class="group-title">Base64 → 文件</h3>
-          <textarea v-model="decB64Input" class="textarea" rows="6" placeholder="在此粘贴 Base64 文本（可包含 data URL 头）" />
-          <div class="row row-spaced">
-            <input v-model="decFilename" class="input filename-input" placeholder="filename.bin" />
-            <button class="btn" :disabled="!decB64Input" @click="doDecodeSave">保存文件…</button>
-          </div>
-        </section>
-      </div>
-    </div>
-
-    <!-- ===== 哈希 Tab ===== -->
-    <div v-if="activeTab === 'hash'" class="panel">
-      <section class="card">
-        <div class="row row-between">
-          <div class="seg">
-            <h3 class="group-title group-title-inline">哈希</h3>
-            <label class="radio"><input type="radio" value="text" v-model="hashSource" /> 文本</label>
-            <label class="radio"><input type="radio" value="file" v-model="hashSource" /> 文件</label>
-          </div>
-          <select v-model="hashAlgo" class="input algo-select">
-            <option value="md5">MD5</option>
-            <option value="sha1">SHA-1</option>
-            <option value="sha256">SHA-256</option>
-            <option value="sha512">SHA-512</option>
-          </select>
-        </div>
-
-        <textarea v-if="hashSource === 'text'" v-model="hashText" class="textarea" rows="4" placeholder="在此输入要哈希的文本…" />
-        <div v-else class="row src-row"><input type="file" @change="onHashFilePicked" /></div>
-        <div v-if="hashSource === 'file' && hashFileInfo" class="meta meta-block">{{ hashFileInfo }}</div>
-
-        <div class="row row-spaced">
-          <button class="btn" :disabled="hashBusy" @click="doHash">{{ hashBusy ? '计算中…' : '计算' }}</button>
-          <input v-model="hashOutput" readonly class="input mono input-grow" placeholder="结果将显示在此处" />
-          <button v-if="hashOutput" class="link-btn" @click="copyValue('hashOut', hashOutput)">
-            {{ copiedKey === 'hashOut' ? '已复制 ✓' : '复制' }}
-          </button>
-        </div>
-      </section>
-
-      <section class="card">
-        <h3 class="group-title">字节大小</h3>
-        <div class="row">
-          <input v-model="bytesInput" class="input input-grow" placeholder="1048576" />
-          <button class="btn" @click="fmtBytes">格式化</button>
-          <input v-model="bytesOutput" readonly class="input input-grow" />
-        </div>
-      </section>
-    </div>
+      </STabPane>
+    </STabs>
 
     <p v-if="error" class="error">{{ error }}</p>
   </div>
@@ -313,27 +332,6 @@ const tabs: { key: Tab; label: string }[] = [
 <style scoped>
 .codec { max-width: 92%; margin: 0 auto; }
 .lead { color: var(--fg-muted); margin-bottom: 16px; }
-
-.tab-bar {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 16px;
-}
-.tab {
-  padding: 8px 16px;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--fg-muted);
-  font-family: inherit;
-}
-.tab:hover { color: var(--fg); }
-.tab.active { color: var(--fg); border-bottom-color: var(--primary); }
 
 .panel { display: flex; flex-direction: column; gap: 12px; }
 .card {
