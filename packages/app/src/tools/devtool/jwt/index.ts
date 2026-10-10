@@ -1,4 +1,4 @@
-import type { ToolDef } from '../../../registry'
+import type { ToolDef } from '../../../shell/registry'
 
 /** JWT 解码。 */
 export const jwtTool: ToolDef = {

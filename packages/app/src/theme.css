@@ -1,4 +1,4 @@
-/* 共享主题：CSS 变量、基础排版与通用按钮。Web 与桌面宿主在 main.ts 中各 import 一次。
+/* 应用主题：CSS 变量、基础排版与通用按钮，在 main.ts 中引入。
  *
  * 旧变量已桥接到 @qingfeng346/ui-kit 的 --sui-* 设计令牌（需先 import '@qingfeng346/ui-kit/style.css'），
  * 明暗主题由 ui-kit 的 tokens.css / theme-dark.css 提供，宿主负责设置 html[data-theme]。 */

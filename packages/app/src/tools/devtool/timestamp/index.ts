@@ -1,4 +1,4 @@
-import type { ToolDef } from '../../../registry'
+import type { ToolDef } from '../../../shell/registry'
 
 /** 时间戳 / 时区转换。 */
 export const timestampTool: ToolDef = {

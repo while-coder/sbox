@@ -1,4 +1,4 @@
-import type { ToolDef } from '../../../registry'
+import type { ToolDef } from '../../../shell/registry'
 
 /** JSON 格式化 / 查看器。 */
 export const jsonTool: ToolDef = {

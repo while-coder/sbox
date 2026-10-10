@@ -4,7 +4,7 @@ export default defineConfig({
   title: 'sbox',
   description: 'sbot 配套桌面工具箱',
   outDir: '../docs',
-  // 文档站点位于 Pages 子路径 /sbox/docs/（站点根由 web 工具站占用）
+  // 文档站点位于 Pages 子路径 /sbox/docs/
   base: '/sbox/docs/',
   head: [
     ['link', { rel: 'icon', href: '/sbox/docs/logo.svg' }],

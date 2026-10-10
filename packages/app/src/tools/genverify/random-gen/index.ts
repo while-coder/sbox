@@ -1,4 +1,4 @@
-import type { ToolDef } from '../../../registry'
+import type { ToolDef } from '../../../shell/registry'
 
 /** 随机生成器。 */
 export const randomGenTool: ToolDef = {

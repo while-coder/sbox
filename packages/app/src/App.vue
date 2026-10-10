@@ -9,7 +9,7 @@ import {
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { UpdaterDialog } from '@while-coder/tauri-updater-vue'
-import { toolNavGroups } from '@sbox/tools-core'
+import { toolNavGroups } from './shell/registry'
 // 深路径按需导入：从包入口导入会把全部组件拖进主包（SFC tree-shake 不可靠）
 import SMessageHost from '@qingfeng346/ui-kit/components/SMessageHost.vue'
 import { ALL_TOOLS } from './shell/registry'

@@ -1,4 +1,4 @@
-import type { ToolDef } from '../../../registry'
+import type { ToolDef } from '../../../shell/registry'
 
 /** 编解码工具：Base64 / URL / Hex / HTML / Unicode / JSON 转换与哈希。 */
 export const codecTool: ToolDef = {

@@ -1,4 +1,4 @@
-import type { ToolDef } from '../../../registry'
+import type { ToolDef } from '../../../shell/registry'
 
 /** 二维码生成 / 识别。 */
 export const qrcodeTool: ToolDef = {

@@ -1,12 +1,13 @@
 /**
- * Tauri 平台实现：注入到 @sbox/tools-core 的平台层。
+ * Tauri 平台实现：注入到应用平台层。
  * WebView 的 <a download> 在 Tauri 中不可靠，统一走「保存对话框选路径 → Rust 落盘」。
  */
 import { save, open } from '@tauri-apps/plugin-dialog'
 import { basename, join } from '@tauri-apps/api/path'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { bytesToBase64, stringToBase64, type Platform, type SaveItem } from '@sbox/tools-core'
+import { bytesToBase64, stringToBase64 } from '../tools/encode/codec/codec'
+import type { Platform, SaveItem } from './types'
 
 async function writeBase64(path: string, base64: string): Promise<void> {
   await invoke('save_base64_file', { path, base64: base64.trim() })

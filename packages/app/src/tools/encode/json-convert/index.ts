@@ -1,4 +1,4 @@
-import type { ToolDef } from '../../../registry'
+import type { ToolDef } from '../../../shell/registry'
 
 /** JSON / YAML / TOML 互转。 */
 export const jsonConvertTool: ToolDef = {

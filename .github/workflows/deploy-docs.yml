@@ -1,16 +1,14 @@
-name: Deploy Web
+name: Deploy Docs
 
-# 单一 Pages 站点：web 工具站在根（/sbox/），文档站在 /sbox/docs/。
+# 文档站部署到 /sbox/docs/。
 on:
   push:
     branches: [main]
     paths:
-      - 'packages/web/**'
-      - 'packages/tools-core/**'
       - 'docs-site/**'
       - 'pnpm-workspace.yaml'
       - 'package.json'
-      - '.github/workflows/deploy-web.yml'
+      - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
 permissions:
@@ -34,18 +32,14 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: while-coder/workflows/.github/actions/install-pnpm-dependencies@main
 
-      # web 工具站 → 站点根
-      - run: pnpm run build:web
       # 文档站 → 子目录 /docs（vitepress base 已设为 /sbox/docs/，outDir 为 ../docs）
       - run: pnpm run docs:build
 
-      # 组装单一产物：web 在根，docs 在 /docs
+      # 文档保留原有 /docs 路径
       - name: Assemble site
         run: |
-          mkdir -p _site
-          cp -r packages/web/dist/. _site/
           mkdir -p _site/docs
           cp -r docs/. _site/docs/
 

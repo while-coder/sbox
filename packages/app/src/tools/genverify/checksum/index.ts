@@ -1,4 +1,4 @@
-import type { ToolDef } from '../../../registry'
+import type { ToolDef } from '../../../shell/registry'
 
 /** 文件校验 (Checksum)。 */
 export const checksumTool: ToolDef = {

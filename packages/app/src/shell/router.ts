@@ -1,5 +1,5 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
-import { HomeView } from '@sbox/tools-core'
+import HomeView from '../views/HomeView.vue'
 import { ALL_TOOLS } from './registry'
 
 const toolRoutes: RouteRecordRaw[] = ALL_TOOLS.map(t => ({
