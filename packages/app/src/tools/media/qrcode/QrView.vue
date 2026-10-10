@@ -40,7 +40,7 @@ async function savePng() {
   if (!qrDataUrl.value) return
   try {
     const b64 = qrDataUrl.value.split(',', 2)[1]
-    await getPlatform().saveBinary(base64ToBytes(b64), 'qrcode.png', 'image/png')
+    await getPlatform().saveBinary(base64ToBytes(b64), 'qrcode.png')
   } catch (e: any) { error.value = String(e?.message || e) }
 }
 

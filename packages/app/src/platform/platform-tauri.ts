@@ -1,13 +1,13 @@
 /**
- * Tauri 平台实现：注入到应用平台层。
+ * Tauri 平台实现：原生文件拖放与保存。
  * WebView 的 <a download> 在 Tauri 中不可靠，统一走「保存对话框选路径 → Rust 落盘」。
  */
-import { save, open } from '@tauri-apps/plugin-dialog'
-import { basename, join } from '@tauri-apps/api/path'
+import { save } from '@tauri-apps/plugin-dialog'
+import { basename } from '@tauri-apps/api/path'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { bytesToBase64, stringToBase64 } from '../tools/encode/codec/codec'
-import type { Platform, SaveItem } from './types'
+import type { Platform } from './types'
 
 async function writeBase64(path: string, base64: string): Promise<void> {
   await invoke('save_base64_file', { path, base64: base64.trim() })
@@ -55,17 +55,5 @@ export const tauriPlatform: Platform = {
     if (!path) return false
     await writeBase64(path, stringToBase64(text))
     return true
-  },
-  async saveBatch(items: SaveItem[]) {
-    // 桌面端：弹一次目录选择，全部落盘到该目录
-    const dir = await open({ directory: true, title: '选择保存目录' })
-    if (!dir || typeof dir !== 'string') return 0
-    let n = 0
-    for (const it of items) {
-      const path = await join(dir, it.name)
-      await writeBase64(path, bytesToBase64(it.bytes))
-      n += 1
-    }
-    return n
   },
 }

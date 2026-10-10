@@ -117,7 +117,7 @@ async function doDecodeSave() {
     const b64 = decB64Input.value.includes(',')
       ? decB64Input.value.split(',', 2)[1]
       : decB64Input.value
-    await getPlatform().saveBinary(base64ToBytes(b64), decFilename.value || 'decoded.bin', 'application/octet-stream')
+    await getPlatform().saveBinary(base64ToBytes(b64), decFilename.value || 'decoded.bin')
   } catch (e: any) { error.value = String(e?.message || e) }
 }
 

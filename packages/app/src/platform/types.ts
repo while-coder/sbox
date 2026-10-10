@@ -1,20 +1,10 @@
 /**
- * 平台适配层接口 —— 工具组件唯一与宿主（Web / Tauri）耦合的部分。
- * Web 宿主用浏览器文件事件/下载；Tauri 宿主补充原生拖拽读取和落盘。
- * 工具内部通过 getPlatform() 取用，不直接依赖任何宿主 API。
+ * 桌面平台接口：工具内部通过 getPlatform() 使用原生文件拖放和保存。
  */
-
-/** 批量保存的单个条目。 */
-export interface SaveItem {
-  bytes: Uint8Array
-  /** 文件名（含扩展名） */
-  name: string
-  mime: string
-}
 
 export interface Platform {
   /**
-   * 监听宿主原生文件拖放。Web 宿主不实现，由 HTML5 drop 事件处理。
+   * 监听原生文件拖放。
    * Tauri Windows 默认会拦截 HTML5 drop，必须通过此入口读取系统拖入的路径。
    */
   listenFileDrops?(
@@ -26,10 +16,9 @@ export interface Platform {
    * 保存单个二进制文件。
    * @param bytes       原始字节
    * @param defaultName 建议文件名（含扩展名）
-   * @param mime        MIME 类型（Web 端用于 Blob）
-   * @returns false 表示用户取消（Web 端恒为 true）
+   * @returns false 表示用户取消
    */
-  saveBinary(bytes: Uint8Array, defaultName: string, mime: string): Promise<boolean>
+  saveBinary(bytes: Uint8Array, defaultName: string): Promise<boolean>
 
   /**
    * 保存文本内容（UTF-8）。
@@ -37,9 +26,4 @@ export interface Platform {
    */
   saveText(text: string, defaultName: string): Promise<boolean>
 
-  /**
-   * 批量保存。Web 端逐个触发下载；桌面端弹一次目录选择后全部落盘。
-   * @returns 实际保存成功的数量（0 表示用户取消）
-   */
-  saveBatch(items: SaveItem[]): Promise<number>
 }

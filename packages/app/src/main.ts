@@ -1,11 +1,9 @@
 import { createApp } from 'vue'
-import { setPlatform } from './platform'
 import '@qingfeng346/ui-kit/style.css'
 import './theme.css'
 import App from './App.vue'
 import router from './shell/router'
 import { setupLogger } from './shell/logger'
-import { tauriPlatform } from './platform/platform-tauri'
 
 setupLogger()
 
@@ -16,8 +14,5 @@ const applyColorScheme = () => {
 }
 applyColorScheme()
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyColorScheme)
-
-// 注入 Tauri 平台实现（落盘 = 保存对话框 + Rust 写文件）
-setPlatform(tauriPlatform)
 
 createApp(App).use(router).mount('#app')
