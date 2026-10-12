@@ -13,6 +13,13 @@ import {
 } from './rename-engine'
 import { executeBatchRename, isDirPath, listDirEntries, statPaths, type RenameResultItem } from './tauri'
 import RuleCard from './RuleCard.vue'
+import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
+import SCheckbox from '@qingfeng346/ui-kit/components/checkbox/SCheckbox.vue'
+import SSplit from '@qingfeng346/ui-kit/components/SSplit.vue'
+import SEllipsis from '@qingfeng346/ui-kit/components/SEllipsis.vue'
+import SEmpty from '@qingfeng346/ui-kit/components/SEmpty.vue'
+import SSortableList from '@qingfeng346/ui-kit/components/sortable/SSortableList.vue'
+import SSortableItem from '@qingfeng346/ui-kit/components/sortable/SSortableItem.vue'
 
 interface FileEntry {
   path: string
@@ -72,27 +79,19 @@ const canExecute = computed(() =>
 )
 
 // ---- 列表拖拽排序（pointer 实现）：Windows 上 Tauri 接管了 WebView2 的原生 drop 处理，
-// HTML5 DnD 的 drop 事件不会触发，因此规则与文件行都用 pointermove 手动换位 ----
+// HTML5 DnD 的 drop 事件不会触发；规则使用 ui-kit 排序，文件行保留整行拖动 ----
 
-type DragList = 'rule' | 'file'
-
-const draggingList = ref<DragList | null>(null)
-
-const ROW_SELECTOR: Record<DragList, string> = {
-  rule: '.rule-slot',
-  file: '.preview-row:not(.head-row)',
-}
+const draggingFiles = ref(false)
 
 /** 行内表单控件与按钮上的按下不启动拖拽 */
-function beginListDrag(event: PointerEvent, kind: DragList) {
+function beginFileDrag(event: PointerEvent) {
   if (event.button !== 0) return
-  if (kind === 'rule' && !(event.target as Element).closest('.grip')) return
   if ((event.target as HTMLElement).closest('input, textarea, select, button, a, label')) return
   const rowEl = event.currentTarget as HTMLElement
   const container = rowEl.parentElement
   if (!container) return
 
-  draggingList.value = kind
+  draggingFiles.value = true
   rowEl.style.opacity = '0.5'
   document.body.style.userSelect = 'none'
 
@@ -107,17 +106,17 @@ function beginListDrag(event: PointerEvent, kind: DragList) {
     if (lastY < rect.top + 32) container.scrollTop -= 14
     else if (lastY > rect.bottom - 32) container.scrollTop += 14
 
-    const rows = [...container.querySelectorAll<HTMLElement>(ROW_SELECTOR[kind])]
+    const rows = [...container.querySelectorAll<HTMLElement>('.preview-row:not(.head-row)')]
     const at = rows.findIndex(row => {
       const r = row.getBoundingClientRect()
       return lastY >= r.top && lastY < r.bottom
     })
     const from = rows.indexOf(rowEl)
     if (at < 0 || from < 0 || from === at) return
-    const list = kind === 'rule' ? rules.value : files.value
+    const list = files.value
     const [item] = list.splice(from, 1)
     list.splice(at, 0, item)
-    if (kind === 'file') sortKey.value = null
+    sortKey.value = null
   }
 
   const onMove = (e: PointerEvent) => {
@@ -125,7 +124,7 @@ function beginListDrag(event: PointerEvent, kind: DragList) {
     if (!raf) raf = requestAnimationFrame(applyMove)
   }
   const onUp = () => {
-    draggingList.value = null
+    draggingFiles.value = false
     rowEl.style.opacity = ''
     document.body.style.userSelect = ''
     window.removeEventListener('pointermove', onMove)
@@ -341,38 +340,38 @@ onUnmounted(() => {
 
     <section class="card">
       <div class="toolbar">
-        <button type="button" class="btn btn-outline" :disabled="adding" @click="chooseFiles">
+        <SButton size="small" :disabled="adding" @click="chooseFiles">
           <Plus :size="15" /> 添加文件
-        </button>
-        <button type="button" class="btn btn-outline" :disabled="adding" @click="chooseFolder">
+        </SButton>
+        <SButton size="small" :disabled="adding" @click="chooseFolder">
           <FolderOpen :size="15" /> 添加文件夹
-        </button>
-        <label class="check-inline" title="勾选后添加文件夹时会递归收集所有子文件夹中的文件">
-          <input v-model="recursive" type="checkbox" /> 包含子文件夹
-        </label>
-        <button type="button" class="btn btn-outline danger" :disabled="!files.length" @click="clearFiles">
+        </SButton>
+        <SCheckbox v-model:checked="recursive" title="勾选后添加文件夹时会递归收集所有子文件夹中的文件">包含子文件夹</SCheckbox>
+        <SButton size="small" type="error" tertiary :disabled="!files.length" @click="clearFiles">
           <X :size="15" /> 清空列表
-        </button>
+        </SButton>
         <span class="toolbar-note">{{ adding ? '正在读取…' : files.length ? `已添加 ${files.length} 个文件` : '尚未添加文件' }}</span>
       </div>
     </section>
 
     <section class="card workbench">
-      <div class="panes">
+      <SSplit class="panes" direction="vertical" :default-size="0.4" :min="0.2" :max="0.7">
+        <template #1>
         <div class="rules-pane">
           <div class="pane-head">
             <h3>规则（按顺序执行）</h3>
-            <button type="button" class="btn btn-outline" @click="addRule">
+            <SButton size="small" @click="addRule">
               <Plus :size="15" /> 添加规则
-            </button>
+            </SButton>
           </div>
-          <p v-if="!rules.length" class="empty">还没有规则。点击「添加规则」，规则会从上到下依次作用于每个文件名。</p>
-          <div
+          <SEmpty v-if="!rules.length" description="还没有规则。点击「添加规则」，规则会从上到下依次作用于每个文件名。" />
+          <SSortableList :items="rules" label="规则" @reorder="rules = $event">
+          <SSortableItem
             v-for="(rule, index) in rules"
             :key="rule.id"
             class="rule-slot"
-            :class="{ dragging: draggingList === 'rule' }"
-            @pointerdown="beginListDrag($event, 'rule')"
+            :index="index"
+            :label="`规则 ${index + 1}`"
           >
             <RuleCard
               :rule="rule"
@@ -382,32 +381,32 @@ onUnmounted(() => {
               @remove="removeRule(index)"
               @read-clipboard="refreshClipboard"
             />
-          </div>
+          </SSortableItem>
+          </SSortableList>
         </div>
-
+        </template>
+        <template #2>
         <div class="preview-pane">
           <div class="pane-head stacked">
             <div class="head-line">
               <h3>预览</h3>
-              <button v-if="usesClipboard" type="button" class="link-btn" :disabled="readingClipboard" @click="refreshClipboard">{{ readingClipboard ? '正在读取…' : '重新读取剪贴板' }}</button>
+              <SButton size="small" text v-if="usesClipboard" :disabled="readingClipboard" @click="refreshClipboard">{{ readingClipboard ? '正在读取…' : '重新读取剪贴板' }}</SButton>
               <span class="summary">
                 {{ files.length }} 个文件 · {{ counts.willRename }} 将重命名 · {{ counts.unchanged }} 无变化 · {{ counts.conflict }} 冲突
               </span>
             </div>
             <div v-if="files.length > 1" class="sort-row">
               <span class="sort-label">排序</span>
-              <button
-                v-for="opt in sortOptions"
+              <SButton size="small" text v-for="opt in sortOptions"
                 :key="opt.key"
-                type="button"
-                class="link-btn sort-btn"
+
+                class="sort-btn"
                 :class="{ active: sortKey === opt.key }"
-                @click="sortBy(opt.key)"
-              >{{ opt.label }}{{ sortKey === opt.key ? (sortAsc ? ' ↑' : ' ↓') : '' }}</button>
+                @click="sortBy(opt.key)">{{ opt.label }}{{ sortKey === opt.key ? (sortAsc ? ' ↑' : ' ↓') : '' }}</SButton>
               <span class="sort-hint">拖动行可手动调整顺序</span>
             </div>
           </div>
-          <p v-if="!files.length" class="empty">还没有文件。点击上方「添加文件」或直接把文件拖进窗口。</p>
+          <SEmpty v-if="!files.length" description="还没有文件。点击上方「添加文件」或直接把文件拖进窗口。" />
           <div v-else class="preview-list">
             <div class="preview-row head-row">
               <span>原始文件名</span>
@@ -420,24 +419,22 @@ onUnmounted(() => {
               v-for="(item, i) in preview"
               :key="files[i].path"
               class="preview-row"
-              :class="[`status-${item.status}`, { dragging: draggingList === 'file' }]"
-              @pointerdown="beginListDrag($event, 'file')"
+              :class="[`status-${item.status}`, { dragging: draggingFiles }]"
+              @pointerdown="beginFileDrag($event)"
             >
               <span class="name" :title="files[i].path">{{ item.originalName }}</span>
               <span class="name final">
                 <ChevronRight class="arrow" :size="14" />
                 {{ item.finalName }}
               </span>
-              <span class="folder-path" :title="parentDir(files[i].path)">{{ parentDir(files[i].path) }}</span>
+              <SEllipsis class="folder-path">{{ parentDir(files[i].path) }}</SEllipsis>
               <span class="file-status" :title="item.statusDetail">{{ item.status === 'ok' ? '将重命名' : statusText(item) }}</span>
               <span class="row-actions">
-                <button
-                  v-if="item.steps.length"
-                  type="button"
-                  class="link-btn"
-                  @click="toggleExpand(files[i].path)"
-                >{{ expanded.has(files[i].path) ? '收起' : '步骤' }}</button>
-                <button type="button" class="link-btn" @click="removeFile(i)">移除</button>
+                <SButton size="small" text v-if="item.steps.length"
+
+
+                  @click="toggleExpand(files[i].path)">{{ expanded.has(files[i].path) ? '收起' : '步骤' }}</SButton>
+                <SButton size="small" text @click="removeFile(i)">移除</SButton>
               </span>
               <div v-if="expanded.has(files[i].path) && item.steps.length" class="steps">
                 <div v-for="(step, s) in item.steps" :key="step.ruleId + s" class="step">
@@ -453,7 +450,8 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-      </div>
+        </template>
+      </SSplit>
     </section>
 
     <section class="card footer-bar">
@@ -463,9 +461,9 @@ onUnmounted(() => {
         <template v-else-if="!counts.willRename">所有文件名均无变化</template>
         <template v-else>将重命名 {{ counts.willRename }} 个文件</template>
       </span>
-      <button type="button" class="btn" :disabled="!canExecute" @click="execute">
+      <SButton size="small" type="primary" :disabled="!canExecute" @click="execute">
         {{ executing ? '正在执行…' : '执行重命名' }}
-      </button>
+      </SButton>
     </section>
   </div>
 </template>
@@ -477,14 +475,12 @@ onUnmounted(() => {
 .card { padding: 12px 16px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
 h3 { margin: 0; font-size: 14px; }
 .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; flex: 0 0 auto; }
-.btn { display: inline-flex; gap: 6px; align-items: center; }
 .toolbar-note { color: var(--fg-muted); font-size: 13px; }
-.check-inline { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; color: var(--fg-muted); cursor: pointer; user-select: none; }
-.btn-outline.danger:hover { border-color: var(--danger); color: var(--danger); }
 .workbench { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 0; }
-.panes { display: grid; grid-template-rows: minmax(100px, 2fr) minmax(0, 3fr); flex: 1 1 auto; min-height: 0; }
-.rules-pane { min-width: 0; min-height: 0; overflow-y: auto; padding: 12px 16px; }
-.preview-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--border); padding: 12px 16px; }
+.panes { flex: 1 1 auto; min-height: 0; }
+.panes :deep(.s-split-pane) { overflow: hidden; }
+.rules-pane { height: 100%; box-sizing: border-box; min-width: 0; min-height: 0; overflow-y: auto; padding: 12px 16px; }
+.preview-pane { height: 100%; box-sizing: border-box; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--border); padding: 12px 16px; }
 .preview-pane > .pane-head { flex: 0 0 auto; }
 .pane-head { position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding-bottom: 10px; background: var(--card); }
 .pane-head.stacked { flex-direction: column; align-items: stretch; gap: 8px; }
@@ -494,14 +490,14 @@ h3 { margin: 0; font-size: 14px; }
 .sort-hint { margin-left: auto; }
 .sort-btn.active { font-weight: 600; }
 .summary { color: var(--fg-muted); font-size: 12px; }
-.empty { margin: 8px 0; font-size: 13px; color: var(--fg-muted); }
 .rule-slot { margin-bottom: 6px; }
+.rule-slot :deep(> .sort-handle) { position: absolute; top: 10px; left: 8px; z-index: 1; }
 .preview-list { border: 1px solid var(--border); border-radius: 6px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
 .preview-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(80px, 0.4fr) 76px; gap: 10px; align-items: start; padding: 6px 12px; border-top: 1px solid var(--border); font-size: 13px; cursor: grab; }
 .preview-row:active { cursor: grabbing; }
 .preview-row.head-row { position: sticky; top: 0; z-index: 1; border-top: none; background: var(--bg); color: var(--fg-muted); font-size: 12px; cursor: default; }
 .name { overflow-wrap: anywhere; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
-.folder-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-muted); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.folder-path { color: var(--fg-muted); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .final { display: flex; gap: 4px; align-items: baseline; flex-wrap: wrap; }
 .arrow { flex: 0 0 auto; align-self: center; color: var(--fg-muted); }
 .status-unchanged .final { color: var(--fg-muted); }
@@ -510,8 +506,6 @@ h3 { margin: 0; font-size: 14px; }
 .status-ok .file-status { color: var(--success); }
 .status-conflict-duplicate .file-status, .status-conflict-exists .file-status, .status-invalid .file-status { color: var(--danger); }
 .row-actions { display: flex; gap: 8px; }
-.link-btn { padding: 0; border: none; background: none; color: var(--primary); font-size: 12px; cursor: pointer; }
-.link-btn:hover { text-decoration: underline; }
 .steps { grid-column: 1 / -1; display: grid; gap: 4px; padding: 8px 0 2px; }
 .step { display: flex; gap: 10px; align-items: baseline; font-size: 12px; }
 .step-name { flex: 0 0 auto; color: var(--fg-muted); }
