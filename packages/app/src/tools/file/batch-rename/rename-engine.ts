@@ -25,6 +25,81 @@ export type RenameRule = RuleBase & (
 /** 文件名/扩展名分离的中间表示，ext 不含点；隐藏文件（.gitignore）与无扩展名文件 ext 为 '' */
 export interface NameParts { base: string; ext: string }
 
+export interface RenameFile {
+  name: string
+  path?: string
+  size?: number
+  createdMs?: number | null
+  modifiedMs?: number | null
+}
+
+export const METADATA_TAGS = [
+  { key: 'Date_Now', label: '当前日期时间', hint: '本地时间，格式为 YYYY-MM-DD_HH-mm-ss' },
+  { key: 'Clipboard', label: '剪贴板文本', hint: '使用读取时的文本；可在预览工具栏重新读取' },
+  { key: 'File_Name', label: '原始文件名', hint: '包含扩展名，不受前面的规则影响' },
+  { key: 'File_BaseName', label: '原始主文件名', hint: '不含扩展名' },
+  { key: 'File_Extension', label: '扩展名', hint: '不含前导点；无扩展名时为空' },
+  { key: 'File_FolderName', label: '所在文件夹名称', hint: '只取最后一级文件夹名称' },
+  { key: 'File_FilePath', label: '完整文件路径', hint: '含路径分隔符，直接用于文件名会提示无效；可用后续替换规则处理' },
+  { key: 'File_Size', label: '文件大小（自动单位）', hint: '例如 1.5 KB，以 1024 为单位换算' },
+  { key: 'File_SizeBytes', label: '文件大小（字节）', hint: '整数，不含单位' },
+  { key: 'File_SizeKB', label: '文件大小（KB）', hint: '以 1024 换算，最多两位小数，不含单位' },
+  { key: 'File_SizeMB', label: '文件大小（MB）', hint: '以 1024 换算，最多两位小数，不含单位' },
+  { key: 'File_SizeGB', label: '文件大小（GB）', hint: '以 1024 换算，最多两位小数，不含单位' },
+  { key: 'File_DateCreated', label: '文件创建时间', hint: '本地时间，格式为 YYYY-MM-DD_HH-mm-ss' },
+  { key: 'File_DateModified', label: '文件修改时间', hint: '本地时间，格式为 YYYY-MM-DD_HH-mm-ss' },
+] as const
+
+export interface MetadataOptions { now?: number; clipboard?: string }
+
+const TAG_PATTERN = /\{([A-Za-z][A-Za-z0-9_]*)\}/g
+
+function formatDate(timestamp: number): string {
+  const date = new Date(timestamp)
+  if (!Number.isFinite(date.getTime())) throw new Error('日期无效')
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
+}
+
+/** 按原始文件信息展开一次标签，标签值中的大括号不会再次解析。 */
+export function resolveMetadata(text: string, file: RenameFile, options: MetadataOptions = {}): string {
+  return text.replace(TAG_PATTERN, (_, key: string) => {
+    const tag = METADATA_TAGS.find(tag => tag.key === key)
+    if (!tag) throw new Error(`未知元数据标签：{${key}}`)
+    const required = <T>(value: T | null | undefined): T => {
+      if (value == null) throw new Error(`无法读取${tag.label}`)
+      return value
+    }
+    const parts = splitFileName(file.name)
+    const size = (power: number) => String(Number((required(file.size) / 1024 ** power).toFixed(2)))
+    switch (key) {
+      case 'Date_Now': return formatDate(options.now ?? Date.now())
+      case 'Clipboard': return required(options.clipboard)
+      case 'File_Name': return file.name
+      case 'File_BaseName': return parts.base
+      case 'File_Extension': return parts.ext
+      case 'File_FilePath': return required(file.path)
+      case 'File_FolderName': {
+        const path = required(file.path)
+        const dir = path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')))
+        return dir.slice(Math.max(dir.lastIndexOf('/'), dir.lastIndexOf('\\')) + 1)
+      }
+      case 'File_SizeBytes': return String(required(file.size))
+      case 'File_SizeKB': return size(1)
+      case 'File_SizeMB': return size(2)
+      case 'File_SizeGB': return size(3)
+      case 'File_Size': {
+        const bytes = required(file.size)
+        const power = bytes > 0 ? Math.min(3, Math.floor(Math.log(bytes) / Math.log(1024))) : 0
+        return `${size(power)} ${['B', 'KB', 'MB', 'GB'][power]}`
+      }
+      case 'File_DateCreated': return formatDate(required(file.createdMs))
+      case 'File_DateModified': return formatDate(required(file.modifiedMs))
+      default: throw new Error(`未知元数据标签：{${key}}`)
+    }
+  })
+}
+
 export interface PreviewStep { ruleId: string; ruleLabel: string; name: string }
 
 export interface PreviewItem {
@@ -155,7 +230,7 @@ function transformExtension(transform: (s: string) => string, ext: string): stri
 }
 
 /** 单条规则应用到文件名的 base/ext 上，不可变，返回新的 parts。insert/sequence 为位置操作，不受 applyToExtension 影响。 */
-export function applyRule(rule: RenameRule, parts: NameParts, fileIndex: number): NameParts {
+export function applyRule(rule: RenameRule, parts: NameParts, fileIndex: number, file: RenameFile = { name: joinFileName(parts) }, options: MetadataOptions = {}): NameParts {
   if (!rule.enabled) return parts
   switch (rule.type) {
     case 'replace': {
@@ -166,7 +241,7 @@ export function applyRule(rule: RenameRule, parts: NameParts, fileIndex: number)
       return next
     }
     case 'insert': {
-      const text = rule.text
+      const text = resolveMetadata(rule.text, file, options)
       if (!text) return parts
       const base = parts.base
       if (rule.position === 'start') return { ...parts, base: text + base }
@@ -216,23 +291,35 @@ export function applyRule(rule: RenameRule, parts: NameParts, fileIndex: number)
 
 /**
  * 规则列表 fold 出全部文件的最终名与冲突状态。
- * files 为文件名（不含路径）列表；冲突比较一律不区分大小写（Windows 语义）。
+ * 冲突比较按所在文件夹与文件名，不区分大小写（Windows 语义）。
  */
-export function previewRename(rules: RenameRule[], files: string[]): PreviewItem[] {
+export function previewRename(rules: RenameRule[], files: (string | RenameFile)[], options: MetadataOptions = {}): PreviewItem[] {
   const enabledRules = rules.filter(r => r.enabled)
+  const metadata = files.map(file => typeof file === 'string' ? { name: file } : file)
+  const context = { ...options, now: options.now ?? Date.now() }
 
-  const items: PreviewItem[] = files.map((originalName, fileIndex) => {
+  const items: PreviewItem[] = metadata.map((file, fileIndex) => {
+    const originalName = file.name
     let parts = splitFileName(originalName)
     const steps: PreviewStep[] = []
+    let metadataError: string | undefined
     for (const rule of enabledRules) {
-      parts = applyRule(rule, parts, fileIndex)
+      try {
+        parts = applyRule(rule, parts, fileIndex, file, context)
+      } catch (error) {
+        metadataError = error instanceof Error ? error.message : String(error)
+        break
+      }
       steps.push({ ruleId: rule.id, ruleLabel: ruleLabel(rule), name: joinFileName(parts) })
     }
     const finalName = joinFileName(parts)
 
     let status: PreviewItem['status'] = 'ok'
     let statusDetail: string | undefined
-    if (!parts.base.trim() || !finalName) {
+    if (metadataError) {
+      status = 'invalid'
+      statusDetail = metadataError
+    } else if (!parts.base.trim() || !finalName) {
       status = 'invalid'
       statusDetail = '文件名为空'
     } else if (INVALID_CHARS.test(finalName)) {
@@ -247,9 +334,14 @@ export function previewRename(rules: RenameRule[], files: string[]): PreviewItem
 
   // 批内目标名互撞 → 双双标红。unchanged 项执行时会被跳过，不参与撞名
   const byFinal = new Map<string, number[]>()
+  const nameKey = (name: string, index: number) => {
+    const path = metadata[index].path ?? ''
+    const dir = path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
+    return `${dir}${name}`.toLowerCase()
+  }
   items.forEach((item, i) => {
     if (item.status !== 'ok') return
-    const key = item.finalName.toLowerCase()
+    const key = nameKey(item.finalName, i)
     const group = byFinal.get(key)
     if (group) group.push(i)
     else byFinal.set(key, [i])
@@ -266,19 +358,19 @@ export function previewRename(rules: RenameRule[], files: string[]): PreviewItem
 
   // 目标名撞上批内其他文件（非自身）的原始名 → 链式冲突，标红阻止
   const originalsByLower = new Map<string, number[]>()
-  files.forEach((f, i) => {
-    const key = f.toLowerCase()
+  metadata.forEach((f, i) => {
+    const key = nameKey(f.name, i)
     const group = originalsByLower.get(key)
     if (group) group.push(i)
     else originalsByLower.set(key, [i])
   })
   items.forEach((item, i) => {
     if (item.status !== 'ok') return
-    const group = originalsByLower.get(item.finalName.toLowerCase())
+    const group = originalsByLower.get(nameKey(item.finalName, i))
     const other = group?.find(j => j !== i)
     if (other !== undefined) {
       item.status = 'conflict-exists'
-      item.statusDetail = `目标名与批内文件原始名相同: ${files[other]}`
+      item.statusDetail = `目标名与批内文件原始名相同: ${metadata[other].name}`
     }
   })
 

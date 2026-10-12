@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { readText } from '@tauri-apps/plugin-clipboard-manager'
 import { toast } from '@qingfeng346/ui-kit/composables/message'
 import { Check, ChevronRight, FolderOpen, Plus, TriangleAlert, X } from 'lucide-vue-next'
 import {
@@ -32,8 +33,24 @@ const adding = ref(false)
 /** 添加文件夹时是否递归收集子文件夹中的文件 */
 const recursive = ref(false)
 const executing = ref(false)
+const clipboard = ref<string>()
+const readingClipboard = ref(false)
+const usesClipboard = computed(() => rules.value.some(rule => rule.enabled && rule.type === 'insert' && rule.text.includes('{Clipboard}')))
 
-const preview = computed(() => previewRename(rules.value, files.value.map(f => f.name)))
+const preview = computed(() => previewRename(rules.value, files.value, { clipboard: clipboard.value }))
+
+async function refreshClipboard() {
+  if (readingClipboard.value) return
+  readingClipboard.value = true
+  clipboard.value = undefined
+  try {
+    clipboard.value = await readText()
+  } catch (error) {
+    toast.show('error', `读取剪贴板失败：${String(error)}`)
+  } finally {
+    readingClipboard.value = false
+  }
+}
 
 const counts = computed(() => {
   let willRename = 0
@@ -69,6 +86,7 @@ const ROW_SELECTOR: Record<DragList, string> = {
 /** 行内表单控件与按钮上的按下不启动拖拽 */
 function beginListDrag(event: PointerEvent, kind: DragList) {
   if (event.button !== 0) return
+  if (kind === 'rule' && !(event.target as Element).closest('.grip')) return
   if ((event.target as HTMLElement).closest('input, textarea, select, button, a, label')) return
   const rowEl = event.currentTarget as HTMLElement
   const container = rowEl.parentElement
@@ -319,7 +337,7 @@ onUnmounted(() => {
 <template>
   <div class="batch-rename">
     <h2>批量重命名</h2>
-    <p class="lead">添加文件，按顺序叠加规则（搜索替换、插入、序号、大小写、删除），实时预览最终文件名后一次性执行。文件可直接拖入窗口。</p>
+    <p class="lead">添加或拖入文件，在上方配置规则，在下方预览结果后执行重命名。</p>
 
     <section class="card">
       <div class="toolbar">
@@ -340,7 +358,7 @@ onUnmounted(() => {
     </section>
 
     <section class="card workbench">
-      <div class="columns">
+      <div class="panes">
         <div class="rules-pane">
           <div class="pane-head">
             <h3>规则（按顺序执行）</h3>
@@ -362,6 +380,7 @@ onUnmounted(() => {
               @update="fields => Object.assign(rule, fields)"
               @change-type="(type: RuleType) => changeType(rule, type)"
               @remove="removeRule(index)"
+              @read-clipboard="refreshClipboard"
             />
           </div>
         </div>
@@ -370,6 +389,7 @@ onUnmounted(() => {
           <div class="pane-head stacked">
             <div class="head-line">
               <h3>预览</h3>
+              <button v-if="usesClipboard" type="button" class="link-btn" :disabled="readingClipboard" @click="refreshClipboard">{{ readingClipboard ? '正在读取…' : '重新读取剪贴板' }}</button>
               <span class="summary">
                 {{ files.length }} 个文件 · {{ counts.willRename }} 将重命名 · {{ counts.unchanged }} 无变化 · {{ counts.conflict }} 冲突
               </span>
@@ -392,7 +412,9 @@ onUnmounted(() => {
             <div class="preview-row head-row">
               <span>原始文件名</span>
               <span>新文件名</span>
-              <span />
+              <span>所在文件夹</span>
+              <span>状态</span>
+              <span>操作</span>
             </div>
             <div
               v-for="(item, i) in preview"
@@ -405,8 +427,9 @@ onUnmounted(() => {
               <span class="name final">
                 <ChevronRight class="arrow" :size="14" />
                 {{ item.finalName }}
-                <span v-if="item.status !== 'ok'" class="status-tag">{{ statusText(item) }}</span>
               </span>
+              <span class="folder-path" :title="parentDir(files[i].path)">{{ parentDir(files[i].path) }}</span>
+              <span class="file-status" :title="item.statusDetail">{{ item.status === 'ok' ? '将重命名' : statusText(item) }}</span>
               <span class="row-actions">
                 <button
                   v-if="item.steps.length"
@@ -448,20 +471,21 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* 参考 JSON 查看器：整页占满窗口高度，工具栏/底栏固定，双栏各自内部滚动 */
-.batch-rename { max-width: 92%; margin: 0 auto; height: 100%; display: flex; flex-direction: column; }
-.lead { margin: 0 0 16px; color: var(--fg-muted); flex: 0 0 auto; }
-.card { padding: 16px 20px; margin-bottom: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+/* 上方规则、下方文件预览，两个区域独立滚动，工具栏和执行栏固定。 */
+.batch-rename { max-width: 96%; margin: 0 auto; height: 100%; display: flex; flex-direction: column; }
+.lead { margin: 0 0 12px; color: var(--fg-muted); flex: 0 0 auto; font-size: 13px; }
+.card { padding: 12px 16px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
 h3 { margin: 0; font-size: 14px; }
 .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; flex: 0 0 auto; }
 .btn { display: inline-flex; gap: 6px; align-items: center; }
 .toolbar-note { color: var(--fg-muted); font-size: 13px; }
 .check-inline { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; color: var(--fg-muted); cursor: pointer; user-select: none; }
 .btn-outline.danger:hover { border-color: var(--danger); color: var(--danger); }
-.workbench { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-.columns { display: grid; grid-template-columns: minmax(280px, 2fr) minmax(0, 3fr); gap: 20px; flex: 1 1 auto; min-height: 0; }
-.rules-pane { min-width: 0; min-height: 220px; overflow-y: auto; }
-.preview-pane { min-width: 0; min-height: 220px; overflow-y: auto; }
+.workbench { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 0; }
+.panes { display: grid; grid-template-rows: minmax(100px, 2fr) minmax(0, 3fr); flex: 1 1 auto; min-height: 0; }
+.rules-pane { min-width: 0; min-height: 0; overflow-y: auto; padding: 12px 16px; }
+.preview-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--border); padding: 12px 16px; }
+.preview-pane > .pane-head { flex: 0 0 auto; }
 .pane-head { position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding-bottom: 10px; background: var(--card); }
 .pane-head.stacked { flex-direction: column; align-items: stretch; gap: 8px; }
 .head-line { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
@@ -471,19 +495,20 @@ h3 { margin: 0; font-size: 14px; }
 .sort-btn.active { font-weight: 600; }
 .summary { color: var(--fg-muted); font-size: 12px; }
 .empty { margin: 8px 0; font-size: 13px; color: var(--fg-muted); }
-.rule-slot { margin-bottom: 10px; }
-.rule-slot:active { cursor: grabbing; }
-.preview-list { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.preview-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 10px; align-items: start; padding: 8px 12px; border-top: 1px solid var(--border); font-size: 13px; cursor: grab; }
+.rule-slot { margin-bottom: 6px; }
+.preview-list { border: 1px solid var(--border); border-radius: 6px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
+.preview-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(80px, 0.4fr) 76px; gap: 10px; align-items: start; padding: 6px 12px; border-top: 1px solid var(--border); font-size: 13px; cursor: grab; }
 .preview-row:active { cursor: grabbing; }
-.preview-row.head-row { border-top: none; background: var(--bg); color: var(--fg-muted); font-size: 12px; cursor: default; }
+.preview-row.head-row { position: sticky; top: 0; z-index: 1; border-top: none; background: var(--bg); color: var(--fg-muted); font-size: 12px; cursor: default; }
 .name { overflow-wrap: anywhere; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.folder-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-muted); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .final { display: flex; gap: 4px; align-items: baseline; flex-wrap: wrap; }
 .arrow { flex: 0 0 auto; align-self: center; color: var(--fg-muted); }
 .status-unchanged .final { color: var(--fg-muted); }
 .status-conflict-duplicate .final, .status-conflict-exists .final, .status-invalid .final { color: var(--danger); }
-.status-tag { padding: 0 6px; border: 1px solid var(--danger); border-radius: 999px; font-size: 11px; }
-.status-unchanged .status-tag { border-color: var(--border); }
+.file-status { color: var(--fg-muted); font-size: 12px; overflow-wrap: anywhere; }
+.status-ok .file-status { color: var(--success); }
+.status-conflict-duplicate .file-status, .status-conflict-exists .file-status, .status-invalid .file-status { color: var(--danger); }
 .row-actions { display: flex; gap: 8px; }
 .link-btn { padding: 0; border: none; background: none; color: var(--primary); font-size: 12px; cursor: pointer; }
 .link-btn:hover { text-decoration: underline; }
@@ -497,7 +522,9 @@ h3 { margin: 0; font-size: 14px; }
 .exec-error { color: var(--danger); }
 .footer-bar { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex: 0 0 auto; margin-bottom: 0; }
 .footer-note { font-size: 13px; color: var(--fg-muted); }
-@media (max-width: 860px) {
-  .columns { grid-template-columns: 1fr; }
+@media (max-width: 600px) {
+  .rules-pane, .preview-pane { padding: 10px; }
+  .preview-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr) 64px 60px; gap: 6px; padding: 6px 8px; }
+  .row-actions { gap: 4px; flex-wrap: wrap; }
 }
 </style>
