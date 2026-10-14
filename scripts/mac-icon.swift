@@ -65,3 +65,22 @@ output.append(tableOfContents)
 output.append(chunks)
 try output.write(to: icons.appendingPathComponent("icon.icns"), options: .atomic)
 print("Generated icons/icon.icns (856/1024 artwork, transparent padding)")
+
+// Render the same robot artwork for the 18 pt menu bar slot at 2x resolution.
+// A 1 pt transparent inset keeps it clear of the menu bar edges.
+let trayContext = CGContext(
+    data: nil, width: 36, height: 36, bitsPerComponent: 8, bytesPerRow: 36 * 4,
+    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+)!
+trayContext.clear(CGRect(x: 0, y: 0, width: 36, height: 36))
+trayContext.interpolationQuality = .high
+trayContext.draw(image, in: CGRect(x: 2, y: 2, width: 32, height: 32))
+let trayURL = icons.appendingPathComponent("tray-macos.png")
+guard let trayImage = trayContext.makeImage(),
+      let trayDestination = CGImageDestinationCreateWithURL(trayURL as CFURL, "public.png" as CFString, 1, nil) else {
+    fatalError("Cannot create macOS tray icon")
+}
+CGImageDestinationAddImage(trayDestination, trayImage, nil)
+guard CGImageDestinationFinalize(trayDestination) else { fatalError("Cannot write macOS tray icon") }
+print("Generated icons/tray-macos.png (same robot artwork, 18 pt at 2x)")

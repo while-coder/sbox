@@ -78,8 +78,17 @@ pub(crate) fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &settings, &quit])?;
 
-    TrayIconBuilder::new()
-        .icon(app.default_window_icon().unwrap().clone())
+    let builder = TrayIconBuilder::new();
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .icon(tauri::image::Image::from_bytes(include_bytes!(
+            "../icons/tray-macos.png"
+        ))?)
+        .icon_as_template(false);
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.icon(app.default_window_icon().unwrap().clone());
+
+    builder
         .tooltip("sbox")
         .menu(&menu)
         .show_menu_on_left_click(false)
