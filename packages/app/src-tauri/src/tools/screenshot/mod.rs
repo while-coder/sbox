@@ -533,11 +533,20 @@ fn capture_monitor(monitor: &Monitor) -> Result<(Vec<u8>, u32, u32), String> {
         .round()
         .clamp(1.0, u32::MAX as f64) as u32;
 
-    let filter = SCContentFilter::create()
+    // 使用整屏排除过滤器，保留桌面和程序坞；不要改为只包含应用窗口。
+    let mut filter = SCContentFilter::create()
         .with_display(display)
         .with_excluding_windows(&[])
         .try_build()
         .map_err(|e| e.to_string())?;
+    // includeMenuBar 从 macOS 14.2 开始可用，旧系统继续使用整屏过滤器的默认行为。
+    if NSProcessInfo::processInfo().isOperatingSystemAtLeastVersion(NSOperatingSystemVersion {
+        majorVersion: 14,
+        minorVersion: 2,
+        patchVersion: 0,
+    }) {
+        filter.set_include_menu_bar(true);
+    }
     let configuration = SCStreamConfiguration::new()
         .with_width(output_width)
         .with_height(output_height)
@@ -578,17 +587,14 @@ pub fn screenshot_capture(
     Ok(())
 }
 
-/// 关闭覆盖层窗口的系统入场/退场动画。
+/// 配置截图覆盖层的原生窗口行为，必须在展示前完成。
 ///
 /// Windows 首次 show 一个窗口时，DWM 会播放「窗口打开」过渡（覆盖层表现为从小到大的缩放），
 /// 之后 hide/show 不再播放，所以只有第一次按快捷键能看到。DWMWA_TRANSITIONS_FORCEDISABLED
 /// 把这个窗口从 DWM 过渡动画里摘出去，覆盖层直接整屏出现。
 #[cfg(target_os = "windows")]
 #[tauri::command]
-pub fn screenshot_overlay_disable_animation(
-    app: tauri::AppHandle,
-    label: String,
-) -> Result<(), String> {
+pub fn screenshot_overlay_prepare(app: tauri::AppHandle, label: String) -> Result<(), String> {
     use tauri::Manager;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
@@ -610,12 +616,37 @@ pub fn screenshot_overlay_disable_animation(
     .map_err(|e| e.to_string())
 }
 
-#[cfg(not(target_os = "windows"))]
+/// 普通 alwaysOnTop 在 macOS 上只到 floating 层级，低于菜单栏和程序坞。
+/// 将框选窗口提升到 screenSaver 层级，确保屏幕边缘也能绘制选区并接收鼠标事件。
+#[cfg(target_os = "macos")]
 #[tauri::command]
-pub fn screenshot_overlay_disable_animation(
-    _app: tauri::AppHandle,
-    _label: String,
+pub async fn screenshot_overlay_prepare(
+    app: tauri::AppHandle,
+    label: String,
 ) -> Result<(), String> {
+    use objc2_app_kit::{NSScreenSaverWindowLevel, NSWindow, NSWindowAnimationBehavior};
+    use tauri::Manager;
+
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("窗口不存在：{label}"))?;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    window
+        .with_webview(move |webview| {
+            // SAFETY: Tauri 在主线程执行此回调，ns_window 是该 WebView 所属的有效 NSWindow。
+            let window = unsafe { &*webview.ns_window().cast::<NSWindow>() };
+            window.setLevel(NSScreenSaverWindowLevel);
+            window.setAnimationBehavior(NSWindowAnimationBehavior::None);
+            let _ = sender.send(());
+        })
+        .map_err(|e| e.to_string())?;
+    // 等原生配置真正应用后再允许前端定位和展示窗口。
+    receiver.await.map_err(|e| e.to_string())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[tauri::command]
+pub fn screenshot_overlay_prepare(_app: tauri::AppHandle, _label: String) -> Result<(), String> {
     Ok(())
 }
 

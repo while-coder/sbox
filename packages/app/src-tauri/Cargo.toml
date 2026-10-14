@@ -46,8 +46,9 @@ sysinfo = "0.39.6"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage", "Win32_System_IO", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWindow", "NSResponder"] }
 objc2-foundation = { version = "0.3.2", features = ["NSProcessInfo"] }
-screencapturekit = { version = "8", features = ["macos_14_0"] }
+screencapturekit = { version = "8", features = ["macos_14_2"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"

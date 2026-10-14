@@ -10,6 +10,8 @@ fn main() {
     // /usr/lib/swift 是系统自带 Swift 运行时（dyld shared cache）的解析路径，随系统存在；
     // @executable_path/../Frameworks 兜底，以便日后向 .app/Contents/Frameworks 内嵌库时无需改动。
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        // Tauri 的开发版会把 icns 缓存后嵌入二进制，显式跟踪源文件以免继续使用旧图标。
+        println!("cargo:rerun-if-changed=icons/icon.icns");
         println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
         println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
     }

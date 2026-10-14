@@ -4824,6 +4824,7 @@ dependencies = [
  "digest",
  "log",
  "md-5",
+ "objc2-app-kit",
  "objc2-foundation",
  "open",
  "rand 0.8.6",
