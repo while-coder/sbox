@@ -9,10 +9,10 @@
     "./styles.css": "./src/theme.css",
     "./native": "./src/platform/native.ts",
     "./native-web": "./src/platform/native_web.ts",
-    "./settings": "./src/shell/settings.ts",
-    "./screenshot": "./src/tools/media/screenshot/screenshot.ts",
     "./bytes": "./src/tools/encode/codec/codec.ts",
-    "./tools/*": "./src/tools/*.ts"
+    "./registry": "./src/shell/registry.ts",
+    "./about": "./src/views/AboutPanel.vue",
+    "./save": "./src/platform/save.ts"
   },
   "scripts": {
     "check": "vue-tsc --noEmit"

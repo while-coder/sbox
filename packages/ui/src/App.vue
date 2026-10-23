@@ -1,39 +1,29 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, type WatchStopHandle } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { computed, ref, watch, type Component } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import {
-  AppWindow, Braces, Clock3, FileKey2, FileSearch2, FolderKey, Hash,
-  Home, KeyRound, Menu, MonitorUp, QrCode, ScanText, Settings, ShieldCheck,
-  Shuffle, X, type LucideIcon,
+  Braces, Clock3, FileKey2, Hash,
+  Home, Menu, QrCode, Settings, ShieldCheck,
+  Shuffle, X,
 } from 'lucide-vue-next'
-import { native } from './platform/native'
 import { toolNavGroups } from './shell/registry'
 // 深路径按需导入：从包入口导入会把全部组件拖进主包（SFC tree-shake 不可靠）
 import SMessageHost from '@qingfeng346/ui-kit/components/SMessageHost.vue'
-import { ALL_TOOLS } from './shell/registry'
-import { loadSettings } from './shell/settings'
-import { setupCloseToTray, applyBossKey, watchBossKey, refreshAutostart } from './shell/system'
-import { ensureOverlay } from './tools/media/screenshot/screenshot'
+import { ALL_TOOLS, type ToolDef } from './shell/registry'
 
 const route = useRoute()
-const router = useRouter()
+const props = defineProps<{ tools?: ToolDef[] }>()
 const sidebarOpen = ref(false)
-const isOverlay = computed(() => route.path === '/screenshot-overlay')
-const toolGroups = computed(() => toolNavGroups(ALL_TOOLS))
-let stopShortcutWatch: WatchStopHandle | undefined
-let unlistenClose: (() => void) | undefined
-let unlistenOpenSettings: (() => void) | undefined
-
-const toolIcons: Record<string, LucideIcon> = {
-  'file-locks': FileSearch2, screenshot: MonitorUp, 'keystore-gen': FolderKey,
-  'ssh-keygen': KeyRound, translator: ScanText, 'xiaoai-login': AppWindow,
-  'gdrive-login': AppWindow, codec: Braces, json: Braces, 'json-convert': Shuffle,
+const bare = computed(() => route.meta.bare === true)
+const toolGroups = computed(() => toolNavGroups(props.tools ?? ALL_TOOLS))
+const toolIcons: Record<string, Component> = {
+  codec: Braces, json: Braces, 'json-convert': Shuffle,
   jwt: ShieldCheck, timestamp: Clock3, 'random-gen': Shuffle, checksum: Hash,
   qrcode: QrCode,
 }
 
-function iconFor(toolKey: string): LucideIcon {
-  return toolIcons[toolKey] ?? FileKey2
+function iconFor(tool: ToolDef): Component {
+  return tool.icon ?? toolIcons[tool.key] ?? FileKey2
 }
 
 function closeSidebar() {
@@ -42,28 +32,11 @@ function closeSidebar() {
 
 watch(() => route.fullPath, closeSidebar)
 
-onMounted(async () => {
-  loadSettings()
-  if (native.kind !== 'rust' || native.windowLabel !== 'main') return
-  // 尽早创建并定尺寸隐藏截图覆盖层，避免第一次截图临时创建默认大小的窗口。
-  void ensureOverlay().catch((e) => console.error('初始化截图覆盖层失败：', e))
-  void refreshAutostart()
-  unlistenClose = await setupCloseToTray()
-  await applyBossKey()
-  stopShortcutWatch = watchBossKey()
-  unlistenOpenSettings = await native.listen('open-settings', () => router.push('/settings'))
-})
-
-onUnmounted(() => {
-  stopShortcutWatch?.()
-  unlistenOpenSettings?.()
-  unlistenClose?.()
-})
 </script>
 
 <template>
-  <!-- 截图覆盖层：全屏无外壳 -->
-  <router-view v-if="isOverlay" />
+  <!-- 宿主可以通过路由 meta.bare 使用无外壳页面。 -->
+  <router-view v-if="bare" />
 
   <div v-else class="app-shell">
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -94,7 +67,7 @@ onUnmounted(() => {
             :to="`/${tool.key}`"
             :title="tool.description"
           >
-            <component :is="iconFor(tool.key)" :size="17" stroke-width="1.8" />
+            <component :is="iconFor(tool)" :size="17" stroke-width="1.8" />
             <span>{{ tool.label }}</span>
           </RouterLink>
         </section>

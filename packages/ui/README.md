@@ -2,17 +2,21 @@
 
 sbox 的共用 Vue 界面、路由、工具逻辑与主题。桌面宿主 `packages/app` 通过 workspace 依赖复用本包。
 
-## Native 对接
+## 包边界与扩展
 
-`src/platform/native.ts` 定义 `NativePlatform` 和 `configureNative()`。界面仅使用应用级操作，不导入 Tauri SDK，也不包含 Rust command 名称。
+本包仅保存浏览器和桌面共用的页面、工具与能力接口。桌面专属的 Vue 页面、设置、快捷键与初始化逻辑位于 `packages/app/src/`，不由 UI 包导入。
 
-- `packages/app/src/platform/native_rust.ts`：桌面实现，连接 Tauri 的文件、对话框、剪贴板、窗口、快捷键、更新和各工具 Rust 命令。截图窗口控制器与工具命令实现在同目录下。
-- `src/platform/native_web.ts`：浏览器实现，提供文件下载、剪贴板、版本信息和外部链接；桌面专属操作明确返回错误。
-- `src/tools/**/native.ts`：共用工具的数据类型和服务入口，转发到注入的 native 实现。
+- `src/platform/native.ts`：文件保存、版本信息和外部链接等共用能力接口。
+- `src/platform/native_web.ts`：共用能力的浏览器实现。
+- `packages/app/src/platform/native.ts`：扩展共用接口，定义窗口、快捷键及更新契约。各桌面工具的类型与 Rust 命令调用放在 `packages/app/src/tools/<分类>/<工具>/native.ts`。
+- `packages/app/src/platform/native_rust.ts`：桌面实现，`configureDesktopNative()` 同时向 app 和共用 UI 注入这一实现。
+- `packages/app/src/shell/registry.ts`：注册桌面独有工具、设置页及截图覆盖层路由。
 
-宿主应先调用 `configureNative(new NativeRust())` 或 `configureNative(new NativeWeb())`，再动态导入 `@sbox/ui/app`、`@sbox/ui/router` 并挂载。`packages/app/src/main.ts` 包含完整示例。桌面更新弹窗通过共用 App 的 `updater` 插槽挂载。
+宿主通过 `<SboxApp :tools="tools" />` 注入导航列表，通过 `createSboxRouter({ tools, routes })` 注册页面。`routes` 中同路径的路由会替换共用默认页面；`meta.bare: true` 表示该页面使用无外壳布局。`packages/app/src/main.ts` 包含完整示例。
 
-浏览器导航提供编码转换、JSON、JSON/YAML/TOML 互转、JWT、时间戳、随机生成、文件校验、二维码。系统信息、系统文件修改、截图、证书/SSH 生成和原生登录等工具保留在桌面端；浏览器直接访问这些路由会返回首页。浏览器剪贴板遵循浏览器的安全上下文及用户权限限制。
+更新弹窗通过共用 App 的 `updater` 插槽挂载。共用的 `@sbox/ui/about` 提供应用信息与 GitHub 入口，桌面通过它的 `update` 插槽添加更新面板。
+
+共用工具包括编码转换、JSON、JSON/YAML/TOML 互转、JWT、时间戳、随机生成、文件校验和二维码。系统信息、批量重命名、截图、证书/SSH 生成和原生登录等页面与配套代码全部由 app 持有；Web 构建不包含这些页面。浏览器剪贴板遵循浏览器的安全上下文及用户权限限制。
 
 ## 开发与检查
 

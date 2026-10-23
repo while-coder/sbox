@@ -8,9 +8,9 @@ import type { UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow, primaryMonitor } from '@tauri-apps/api/window'
 import type { Window } from '@tauri-apps/api/window'
-import { settings } from '@sbox/ui/settings'
-import { EMPTY_ANNOTATION, CAPTURE_READY } from '@sbox/ui/screenshot'
-import type { Capture, CapturePixels, SelectionRect, Annotation } from '@sbox/ui/screenshot'
+import { settings } from '../shell/settings'
+import { EMPTY_ANNOTATION, CAPTURE_READY } from '../tools/media/screenshot/screenshot'
+import type { Capture, CapturePixels, SelectionRect, Annotation } from '../tools/media/screenshot/screenshot'
 
 const OVERLAY_LABEL = 'screenshot-overlay'
 const HIDE_CAPTURE_SETTLE_MS = 280

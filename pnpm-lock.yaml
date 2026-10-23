@@ -32,6 +32,9 @@ importers:
 
   packages/app:
     dependencies:
+      '@qingfeng346/ui-kit':
+        specifier: link:../../../ui-kit/ui-kit
+        version: link:../../../ui-kit/ui-kit
       '@sbox/ui':
         specifier: workspace:*
         version: link:../ui
@@ -59,9 +62,18 @@ importers:
       '@while-coder/tauri-updater-vue':
         specifier: git+https://github.com/while-coder/tauri-updater-kit.git#main&path:packages/vue
         version: https://codeload.github.com/while-coder/tauri-updater-kit/tar.gz/9728f9a9eb6b9ed6eb5620cb42e34bbce1100fb6#path:packages/vue(@tauri-apps/api@2.11.1)(@tauri-apps/plugin-process@2.3.1)(@tauri-apps/plugin-updater@2.10.1)(vue@3.5.39(typescript@6.0.3))
+      jsqr:
+        specifier: ^1.4.0
+        version: 1.4.0
+      lucide-vue-next:
+        specifier: ^1.0.0
+        version: 1.0.0(vue@3.5.39(typescript@6.0.3))
       vue:
         specifier: 'catalog:'
         version: 3.5.39(typescript@6.0.3)
+      vue-router:
+        specifier: 'catalog:'
+        version: 5.1.0(@vue/compiler-sfc@3.5.39)(esbuild@0.28.1)(rolldown@1.1.3)(rollup@4.62.2)(vite@8.1.0(@types/node@26.0.1)(esbuild@0.28.1)(yaml@2.9.0))(vue@3.5.39(typescript@6.0.3))
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2.11.2

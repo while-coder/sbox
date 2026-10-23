@@ -10,3 +10,9 @@ declare module '@sbox/ui/app' {
   const component: DefineComponent
   export default component
 }
+
+declare module '@sbox/ui/about' {
+  import type { DefineComponent } from 'vue'
+  const component: DefineComponent
+  export default component
+}

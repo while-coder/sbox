@@ -1,5 +1,5 @@
-import type { NativePlatform, NativeTools, FileDialogOptions, Unlisten } from '@sbox/ui/native'
-import type { Capture } from '@sbox/ui/screenshot'
+import type { DesktopNative, FileDialogOptions, Unlisten } from './native'
+import type { Capture } from '../tools/media/screenshot/screenshot'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -13,22 +13,11 @@ import { register, isRegistered, unregisterAll } from '@tauri-apps/plugin-global
 import { useTauriUpdater } from '@while-coder/tauri-updater-vue'
 import { rustFiles } from './files'
 import * as screenshot from './screenshot'
-import * as gdriveLogin from './tools/gdrive-login'
-import * as systemInfo from './tools/system-info'
-import * as xiaoaiLogin from './tools/xiaoai-login'
-import * as envVars from './tools/env-vars'
-import * as fileLocks from './tools/file-locks'
-import * as portCheck from './tools/port-check'
-import * as translator from './tools/translator'
-import * as batchRename from './tools/batch-rename'
-import * as keystore from './tools/keystore'
-import * as sshKeygen from './tools/ssh-keygen'
 
 /** Tauri APIs and Rust command names remain inside the desktop host. */
-export class NativeRust implements NativePlatform {
+export class NativeRust implements DesktopNative {
   readonly kind = 'rust'
   get windowLabel() { return getCurrentWindow().label }
-  readonly tools: NativeTools = { gdriveLogin, systemInfo, xiaoaiLogin, envVars, fileLocks, portCheck, translator, batchRename, keystore, sshKeygen }
   readonly updater = useTauriUpdater()
   readonly screenshot = {
     ...screenshot,

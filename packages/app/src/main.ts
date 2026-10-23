@@ -7,7 +7,8 @@ async function start(): Promise<void> {
   const desktop = import.meta.env.MODE !== 'web' && '__TAURI_INTERNALS__' in window
   if (desktop) {
     const { NativeRust } = await import('./platform/native_rust')
-    configureNative(new NativeRust())
+    const { configureDesktopNative } = await import('./platform/native')
+    configureDesktopNative(new NativeRust())
     const { setupLogger } = await import('./logger')
     setupLogger()
   } else configureNative(new NativeWeb())
@@ -23,6 +24,7 @@ async function start(): Promise<void> {
     desktop ? import('./App.vue') : import('@sbox/ui/app'),
     import('@sbox/ui/router'),
   ])
-  createApp(App).use(createSboxRouter()).mount('#app')
+  const options = desktop ? await import('./shell/registry').then(({ APP_TOOLS, APP_ROUTES }) => ({ tools: APP_TOOLS, routes: APP_ROUTES })) : {}
+  createApp(App).use(createSboxRouter(options)).mount('#app')
 }
 void start()

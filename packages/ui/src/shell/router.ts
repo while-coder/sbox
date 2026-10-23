@@ -1,21 +1,25 @@
-import { native } from '../platform/native'
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
-import { ALL_TOOLS } from './registry'
+import { ALL_TOOLS, type ToolDef } from './registry'
 
-const toolRoutes: RouteRecordRaw[] = ALL_TOOLS.map(t => ({
-  path: `/${t.key}`,
-  name: t.key,
-  component: t.component,
-}))
-
-export function createSboxRouter() { return createRouter({
-  history: createWebHashHistory(),
-  routes: [
-    { path: '/', name: 'home', component: HomeView, props: { tools: ALL_TOOLS } },
+export interface RouterOptions {
+  tools?: ToolDef[]
+  routes?: RouteRecordRaw[]
+}
+export function createSboxRouter(options: RouterOptions = {}) {
+  const tools = options.tools ?? ALL_TOOLS
+  const extraRoutes = options.routes ?? []
+  const baseRoutes: RouteRecordRaw[] = [
+    { path: '/', name: 'home', component: HomeView, props: { tools } },
     { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
-    ...(native.kind === 'rust' ? [{ path: '/screenshot-overlay', name: 'screenshot-overlay', component: () => import('../tools/media/screenshot/ScreenshotOverlay.vue') }] : []),
-    { path: '/:pathMatch(.*)*', redirect: '/' },
-    ...toolRoutes,
-  ],
-}) }
+  ]
+  return createRouter({
+    history: createWebHashHistory(),
+    routes: [
+      ...baseRoutes.filter(route => !extraRoutes.some(extra => extra.path === route.path)),
+      ...tools.map(tool => ({ path: `/${tool.key}`, name: tool.key, component: tool.component })),
+      ...extraRoutes,
+      { path: '/:pathMatch(.*)*', redirect: '/' },
+    ],
+  })
+}

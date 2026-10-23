@@ -25,12 +25,19 @@
     "@tauri-apps/plugin-updater": "^2.10.1",
     "@while-coder/tauri-updater-vue": "git+https://github.com/while-coder/tauri-updater-kit.git#main&path:packages/vue",
     "vue": "catalog:",
-    "@sbox/ui": "workspace:*"
+    "@sbox/ui": "workspace:*",
+    "@qingfeng346/ui-kit": "link:../../../ui-kit/ui-kit",
+    "lucide-vue-next": "^1.0.0",
+    "vue-router": "catalog:",
+    "jsqr": "^1.4.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.2",
     "@vitejs/plugin-vue": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:"
+  },
+  "ciDependencies": {
+    "@qingfeng346/ui-kit": "https://github.com/while-coder/ui-kit.git#0.0.1&path:/ui-kit"
   }
 }

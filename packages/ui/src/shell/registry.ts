@@ -1,5 +1,4 @@
-import { native } from '../platform/native'
-/** 桌面应用工具注册表、分类与导航。 */
+/** 共用工具注册表、分类与导航。 */
 import type { Component } from 'vue'
 import { codecTool } from '../tools/encode/codec'
 import { jsonTool } from '../tools/encode/json'
@@ -10,19 +9,9 @@ import { randomGenTool } from '../tools/genverify/random-gen'
 import { checksumTool } from '../tools/genverify/checksum'
 import { qrcodeTool } from '../tools/media/qrcode'
 
-import { systemInfoTool } from '../tools/account/system-info'
-import { xiaoaiLoginTool } from '../tools/account/xiaoai-login'
-import { gdriveLoginTool } from '../tools/account/gdrive-login'
-import { fileLocksTool } from '../tools/devtool/file-locks'
-import { batchRenameTool } from '../tools/file/batch-rename'
-import { portCheckTool } from '../tools/devtool/port-check'
-import { envVarsTool } from '../tools/devtool/env-vars'
-import { translatorTool } from '../tools/devtool/translator'
-import { keystoreTool } from '../tools/genverify/keystore'
-import { sshKeygenTool } from '../tools/genverify/ssh-keygen'
-import { screenshotTool } from '../tools/media/screenshot'
 
 export interface ToolDef {
+  icon?: Component
   /** 唯一 key，同时作为路由路径 /<key> */
   key: string
   label: string
@@ -48,31 +37,11 @@ export const CATEGORIES: { key: CategoryKey; label: string }[] = [
   { key: 'account', label: '账号 / 设备' },
 ]
 
-/** 完整工具列表，保持首页与导航的显示顺序。 */
-const tools: ToolDef[] = [
-  codecTool,
-  jsonTool,
-  jsonConvertTool,
-  jwtTool,
-  timestampTool,
-  randomGenTool,
-  checksumTool,
-  qrcodeTool,
-  systemInfoTool,
-  fileLocksTool,
-  batchRenameTool,
-  portCheckTool,
-  envVarsTool,
-  screenshotTool,
-  keystoreTool,
-  sshKeygenTool,
-  translatorTool,
-  xiaoaiLoginTool,
-  gdriveLoginTool,
+/** 浏览器与桌面共用的工具，宿主可以追加自己的工具。 */
+export const ALL_TOOLS: ToolDef[] = [
+  codecTool, jsonTool, jsonConvertTool, jwtTool, timestampTool,
+  randomGenTool, checksumTool, qrcodeTool,
 ]
-
-const webTools = new Set(['codec', 'json', 'json-convert', 'jwt', 'timestamp', 'random-gen', 'checksum', 'qrcode'])
-export const ALL_TOOLS: ToolDef[] = tools.filter(tool => native.kind === 'rust' || webTools.has(tool.key))
 
 /** 按分类分组，保持 CATEGORIES 的顺序，空分类省略。 */
 export function toolsByCategory(tools: ToolDef[]): { key: CategoryKey; label: string; tools: ToolDef[] }[] {
