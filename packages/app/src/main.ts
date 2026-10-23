@@ -1,18 +1,28 @@
 import { createApp } from 'vue'
-import '@qingfeng346/ui-kit/style.css'
-import './theme.css'
-import App from './App.vue'
-import router from './shell/router'
-import { setupLogger } from './shell/logger'
+import { configureNative } from '@sbox/ui/native'
+import { NativeWeb } from '@sbox/ui/native-web'
+import '@sbox/ui/styles.css'
 
-setupLogger()
+async function start(): Promise<void> {
+  const desktop = import.meta.env.MODE !== 'web' && '__TAURI_INTERNALS__' in window
+  if (desktop) {
+    const { NativeRust } = await import('./platform/native_rust')
+    configureNative(new NativeRust())
+    const { setupLogger } = await import('./logger')
+    setupLogger()
+  } else configureNative(new NativeWeb())
 
-// ui-kit 暗色令牌跟随系统（theme-dark.css 以 html[data-theme="dark"] 生效）
-const applyColorScheme = () => {
-  document.documentElement.dataset.theme
-    = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  const applyColorScheme = () => {
+    document.documentElement.dataset.theme
+      = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }
+  applyColorScheme()
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyColorScheme)
+
+  const [{ default: App }, { createSboxRouter }] = await Promise.all([
+    desktop ? import('./App.vue') : import('@sbox/ui/app'),
+    import('@sbox/ui/router'),
+  ])
+  createApp(App).use(createSboxRouter()).mount('#app')
 }
-applyColorScheme()
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyColorScheme)
-
-createApp(App).use(router).mount('#app')
+void start()

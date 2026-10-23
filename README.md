@@ -2,6 +2,8 @@
 
 sbox 是一个桌面工具箱，提供常用的格式处理、生成校验、图片媒体和账号辅助功能。
 
+共用界面位于 [`packages/ui`](packages/ui/README.md)，桌面宿主 `packages/app` 注入 `NativeRust` 连接 Tauri；浏览器预览注入 `NativeWeb`。运行 `pnpm dev:web` 预览浏览器支持的工具，`pnpm build:web` 生成 Web 版本；`pnpm check:ui`、`pnpm check:app` 分别检查共用页面和桌面宿主。
+
 ## 版本与原生资源
 
 根 `package.json` 是版本来源，修改后运行 `pnpm sync:versions`，同步应用包与 Rust 应用版本（含 Cargo.lock）。Tauri 配置直接读取根版本。

@@ -10,10 +10,12 @@
     "macos:dev": "bash src-tauri/native/macos/signed-dev.sh",
     "macos:build": "APPLE_SIGNING_IDENTITY=sbox-dev tauri build",
     "windows:build": "tauri build",
-    "linux:build": "tauri build"
+    "linux:build": "tauri build",
+    "web:dev": "vite",
+    "web:build": "vite build --mode web",
+    "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@qingfeng346/ui-kit": "link:../../../ui-kit/ui-kit",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
@@ -22,22 +24,13 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "@while-coder/tauri-updater-vue": "git+https://github.com/while-coder/tauri-updater-kit.git#main&path:packages/vue",
-    "jsqr": "^1.4.0",
-    "lucide-vue-next": "^1.0.0",
     "vue": "catalog:",
-    "vue-router": "catalog:",
-    "js-yaml": "^5.1.0",
-    "qrcode": "^1.5.4",
-    "smol-toml": "^1.7.0"
-  },
-  "ciDependencies": {
-    "@qingfeng346/ui-kit": "https://github.com/while-coder/ui-kit.git#0.0.1&path:/ui-kit"
+    "@sbox/ui": "workspace:*"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.2",
     "@vitejs/plugin-vue": "catalog:",
     "typescript": "catalog:",
-    "vite": "catalog:",
-    "@types/qrcode": "^1.5.6"
+    "vite": "catalog:"
   }
 }

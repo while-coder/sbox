@@ -1,0 +1,38 @@
+{
+  "name": "@sbox/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./app": "./src/App.vue",
+    "./router": "./src/shell/router.ts",
+    "./styles.css": "./src/theme.css",
+    "./native": "./src/platform/native.ts",
+    "./native-web": "./src/platform/native_web.ts",
+    "./settings": "./src/shell/settings.ts",
+    "./screenshot": "./src/tools/media/screenshot/screenshot.ts",
+    "./bytes": "./src/tools/encode/codec/codec.ts",
+    "./tools/*": "./src/tools/*.ts"
+  },
+  "scripts": {
+    "check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@qingfeng346/ui-kit": "link:../../../ui-kit/ui-kit",
+    "jsqr": "^1.4.0",
+    "lucide-vue-next": "^1.0.0",
+    "vue": "catalog:",
+    "vue-router": "catalog:",
+    "js-yaml": "^5.1.0",
+    "qrcode": "^1.5.4",
+    "smol-toml": "^1.7.0"
+  },
+  "ciDependencies": {
+    "@qingfeng346/ui-kit": "https://github.com/while-coder/ui-kit.git#0.0.1&path:/ui-kit"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "@types/qrcode": "^1.5.6",
+    "vue-tsc": "^3.3.0"
+  }
+}
