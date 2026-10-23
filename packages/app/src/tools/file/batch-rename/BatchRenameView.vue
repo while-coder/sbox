@@ -81,63 +81,8 @@ const canExecute = computed(() =>
   && !executing.value,
 )
 
-// ---- 列表拖拽排序（pointer 实现）：Windows 上 Tauri 接管了 WebView2 的原生 drop 处理，
-// HTML5 DnD 的 drop 事件不会触发；规则使用 ui-kit 排序，文件行保留整行拖动 ----
-
-const draggingFiles = ref(false)
-
-/** 行内表单控件与按钮上的按下不启动拖拽 */
-function beginFileDrag(event: PointerEvent) {
-  if (event.button !== 0) return
-  if ((event.target as HTMLElement).closest('input, textarea, select, button, a, label')) return
-  const rowEl = event.currentTarget as HTMLElement
-  const container = rowEl.parentElement
-  if (!container) return
-
-  draggingFiles.value = true
-  rowEl.style.opacity = '0.5'
-  document.body.style.userSelect = 'none'
-
-  let raf = 0
-  let lastY = event.clientY
-
-  // rAF 中处理：Vue 的 DOM 重排是异步的，按帧读取行位置才能与列表状态同步
-  const applyMove = () => {
-    raf = 0
-    // 拖到容器上下边缘时自动滚动
-    const rect = container.getBoundingClientRect()
-    if (lastY < rect.top + 32) container.scrollTop -= 14
-    else if (lastY > rect.bottom - 32) container.scrollTop += 14
-
-    const rows = [...container.querySelectorAll<HTMLElement>('.preview-row:not(.head-row)')]
-    const at = rows.findIndex(row => {
-      const r = row.getBoundingClientRect()
-      return lastY >= r.top && lastY < r.bottom
-    })
-    const from = rows.indexOf(rowEl)
-    if (at < 0 || from < 0 || from === at) return
-    const list = files.value
-    const [item] = list.splice(from, 1)
-    list.splice(at, 0, item)
-    sortKey.value = null
-  }
-
-  const onMove = (e: PointerEvent) => {
-    lastY = e.clientY
-    if (!raf) raf = requestAnimationFrame(applyMove)
-  }
-  const onUp = () => {
-    draggingFiles.value = false
-    rowEl.style.opacity = ''
-    document.body.style.userSelect = ''
-    window.removeEventListener('pointermove', onMove)
-    window.removeEventListener('pointerup', onUp)
-    window.removeEventListener('pointercancel', onUp)
-  }
-  window.addEventListener('pointermove', onMove)
-  window.addEventListener('pointerup', onUp)
-  window.addEventListener('pointercancel', onUp)
-}
+// ---- 文件行排序复用 ui-kit 的 SSortableList/SSortableItem：把手在行首，pointer 实现，
+// 不依赖 HTML5 DnD（Windows 上 Tauri 接管了 WebView2 的原生 drop 处理）并自带键盘调序 ----
 
 function basename(p: string): string {
   return p.slice(Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')) + 1)
@@ -239,6 +184,12 @@ function sortBy(key: SortKey) {
       : va - vb
     return cmp * dir
   })
+}
+
+/** 把手拖动/键盘调序后换成手动顺序，排序按钮的高亮随之失效 */
+function reorderFiles(items: FileEntry[]) {
+  files.value = items
+  sortKey.value = null
 }
 
 async function chooseFiles() {
@@ -404,7 +355,7 @@ onUnmounted(() => {
                 class="sort-btn"
                 :class="{ active: sortKey === opt.key }"
                 @click="sortBy(opt.key)">{{ opt.label }}{{ sortKey === opt.key ? (sortAsc ? ' ↑' : ' ↓') : '' }}</SButton>
-              <span class="sort-hint">拖动行可手动调整顺序</span>
+              <span class="sort-hint">拖动左侧把手可手动调整顺序</span>
             </div>
           </div>
           <SEmpty v-if="!files.length" description="还没有文件。点击上方「添加文件」或直接把文件拖进窗口。" />
@@ -416,39 +367,41 @@ onUnmounted(() => {
               <span>状态</span>
               <span>操作</span>
             </div>
-            <div
-              v-for="(item, i) in preview"
-              :key="files[i].path"
-              class="preview-row"
-              :class="[`status-${item.status}`, { dragging: draggingFiles }]"
-              @pointerdown="beginFileDrag($event)"
-            >
-              <span class="name" :title="files[i].path">{{ item.originalName }}</span>
-              <span class="name final">
-                <ChevronRight class="arrow" :size="14" />
-                {{ item.finalName }}
-              </span>
-              <SEllipsis class="folder-path">{{ parentDir(files[i].path) }}</SEllipsis>
-              <span class="file-status" :title="item.statusDetail">{{ item.status === 'ok' ? '将重命名' : statusText(item) }}</span>
-              <span class="row-actions">
-                <SButton size="small" text v-if="item.steps.length"
-
-
-                  @click="toggleExpand(files[i].path)">{{ expanded.has(files[i].path) ? '收起' : '步骤' }}</SButton>
-                <SButton size="small" text @click="removeFile(i)">移除</SButton>
-              </span>
-              <div v-if="expanded.has(files[i].path) && item.steps.length" class="steps">
-                <div v-for="(step, s) in item.steps" :key="step.ruleId + s" class="step">
-                  <span class="step-name">{{ s + 1 }}. {{ step.ruleLabel }}</span>
-                  <code>{{ step.name }}</code>
+            <SSortableList :items="files" label="文件" @reorder="reorderFiles">
+              <SSortableItem
+                v-for="(file, i) in files"
+                :key="file.path"
+                class="file-slot"
+                :index="i"
+                :label="`文件 ${file.name}`"
+              >
+                <div class="preview-row" :class="`status-${preview[i].status}`">
+                  <span class="name" :title="file.path">{{ preview[i].originalName }}</span>
+                  <span class="name final">
+                    <ChevronRight class="arrow" :size="14" />
+                    {{ preview[i].finalName }}
+                  </span>
+                  <SEllipsis class="folder-path">{{ parentDir(file.path) }}</SEllipsis>
+                  <span class="file-status" :title="preview[i].statusDetail">{{ preview[i].status === 'ok' ? '将重命名' : statusText(preview[i]) }}</span>
+                  <span class="row-actions">
+                    <SButton size="small" text v-if="preview[i].steps.length"
+                      @click="toggleExpand(file.path)">{{ expanded.has(file.path) ? '收起' : '步骤' }}</SButton>
+                    <SButton size="small" text @click="removeFile(i)">移除</SButton>
+                  </span>
+                  <div v-if="expanded.has(file.path) && preview[i].steps.length" class="steps">
+                    <div v-for="(step, s) in preview[i].steps" :key="step.ruleId + s" class="step">
+                      <span class="step-name">{{ s + 1 }}. {{ step.ruleLabel }}</span>
+                      <code>{{ step.name }}</code>
+                    </div>
+                  </div>
+                  <div v-if="results[file.path]" class="exec-result" :class="`exec-${results[file.path].status}`">
+                    <Check v-if="results[file.path].status === 'renamed'" :size="13" />
+                    <TriangleAlert v-else :size="13" />
+                    {{ execText(results[file.path]) }}
+                  </div>
                 </div>
-              </div>
-              <div v-if="results[files[i].path]" class="exec-result" :class="`exec-${results[files[i].path].status}`">
-                <Check v-if="results[files[i].path].status === 'renamed'" :size="13" />
-                <TriangleAlert v-else :size="13" />
-                {{ execText(results[files[i].path]) }}
-              </div>
-            </div>
+              </SSortableItem>
+            </SSortableList>
           </div>
         </div>
         </template>
@@ -494,9 +447,10 @@ h3 { margin: 0; font-size: 14px; }
 .rule-slot { margin-bottom: 6px; }
 .rule-slot :deep(> .sort-handle) { position: absolute; top: 10px; left: 8px; z-index: 1; }
 .preview-list { border: 1px solid var(--border); border-radius: 6px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
-.preview-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(80px, 0.4fr) 76px; gap: 10px; align-items: start; padding: 6px 12px; border-top: 1px solid var(--border); font-size: 13px; cursor: grab; }
-.preview-row:active { cursor: grabbing; }
-.preview-row.head-row { position: sticky; top: 0; z-index: 1; border-top: none; background: var(--bg); color: var(--fg-muted); font-size: 12px; cursor: default; }
+.file-slot :deep(> .sort-handle) { position: absolute; top: 5px; left: 6px; }
+.preview-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(80px, 0.4fr) 76px; gap: 10px; align-items: start; padding: 6px 12px 6px 36px; border-top: 1px solid var(--border); font-size: 13px; }
+/* 表头 sticky 层级要压过行内任何定位元素（把手、落点指示线），否则滚动时它们会透到表头上 */
+.preview-row.head-row { position: sticky; top: 0; z-index: 3; border-top: none; background: var(--bg); color: var(--fg-muted); font-size: 12px; }
 .name { overflow-wrap: anywhere; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .folder-path { color: var(--fg-muted); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .final { display: flex; gap: 4px; align-items: baseline; flex-wrap: wrap; }
@@ -519,7 +473,8 @@ h3 { margin: 0; font-size: 14px; }
 .footer-note { font-size: 13px; color: var(--fg-muted); }
 @media (max-width: 600px) {
   .rules-pane, .preview-pane { padding: 10px; }
-  .preview-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr) 64px 60px; gap: 6px; padding: 6px 8px; }
+  .preview-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr) 64px 60px; gap: 6px; padding: 6px 8px 6px 30px; }
+  .file-slot :deep(> .sort-handle) { left: 3px; }
   .row-actions { gap: 4px; flex-wrap: wrap; }
 }
 </style>
