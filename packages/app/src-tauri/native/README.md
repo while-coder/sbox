@@ -8,4 +8,4 @@
 
 各平台 `icons/` 是生成目录，不纳入 Git。缓存位于根目录 `.tmp/native-icons/`，源图或生成脚本变化、缓存或输出缺失时重新生成。
 
-macOS 的附加配置位于 `macos/Info.plist`；`sign.sh`、`signed-dev.sh`、`import-signing-cert.sh` 和 `signing-openssl.cnf` 保存现有签名流程。首次设置证书运行 `pnpm --filter @sbox/app macos:setup-signing`，启动签名开发包运行 `pnpm dev:app:mac`。
+macOS 的附加配置位于 `macos/Info.plist`；`sign.sh` 统一提供 `--setup`（创建证书）、`--check`（检查身份）、`--dev`（启动签名开发包）、`--import-ci`（CI 导入证书）以及指定路径签名，OpenSSL 配置内嵌于脚本。根目录 `scripts/mac-import-signing-cert.sh` 仅作为共用 CI 的兼容入口转发到 `--import-ci`。首次设置证书运行 `pnpm --filter @sbox/app macos:setup-signing`，启动签名开发包运行 `pnpm dev:app:mac`。

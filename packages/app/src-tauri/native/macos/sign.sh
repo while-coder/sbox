@@ -8,6 +8,8 @@
 # 用法：
 #   packages/app/src-tauri/native/macos/sign.sh --setup    # 首次创建并安装长期自签名证书（无需 Apple 账号）
 #   packages/app/src-tauri/native/macos/sign.sh --check    # 检查当前钥匙串是否有可用签名身份
+#   packages/app/src-tauri/native/macos/sign.sh --dev      # 构建并启动固定签名开发包
+#   packages/app/src-tauri/native/macos/sign.sh --import-ci # CI 导入签名证书
 #   packages/app/src-tauri/native/macos/sign.sh            # 自动签名存在的 debug/release 二进制与 .app
 #   packages/app/src-tauri/native/macos/sign.sh <路径>      # 签名指定的 .app 或可执行文件
 #
@@ -53,7 +55,6 @@ setup_identity() {
 
   local key_path="$SIGNING_DIR/$IDENTITY.key"
   local cert_path="$SIGNING_DIR/$IDENTITY.crt"
-  local config_path="$ROOT/packages/app/src-tauri/native/macos/signing-openssl.cnf"
 
   if [ -z "${SBOX_CERTIFICATE_PASSWORD:-}" ]; then
     read -r -s -p "设置 $IDENTITY.p12 的导出密码（用于 GitHub Secret）: " SBOX_CERTIFICATE_PASSWORD
@@ -66,9 +67,25 @@ setup_identity() {
   export SBOX_CERTIFICATE_PASSWORD
 
   openssl req -x509 -newkey rsa:3072 -sha256 -days 3650 -nodes \
-    -config "$config_path" \
+    -config /dev/stdin \
     -keyout "$key_path" \
-    -out "$cert_path"
+    -out "$cert_path" <<'OPENSSL_CONFIG'
+[req]
+prompt = no
+distinguished_name = subject
+x509_extensions = codesign
+
+[subject]
+CN = sbox-dev
+O = sbox local development
+
+[codesign]
+basicConstraints = critical, CA:true
+keyUsage = critical, digitalSignature, keyCertSign
+extendedKeyUsage = codeSigning
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+OPENSSL_CONFIG
   openssl pkcs12 -export \
     -name "$IDENTITY" \
     -inkey "$key_path" \
@@ -102,18 +119,78 @@ sign() {
   echo "已签名: $1"
 }
 
-if [ "${1:-}" = "--setup" ]; then
-  setup_identity
-elif [ "${1:-}" = "--check" ]; then
-  check_identity
-elif [ $# -ge 1 ]; then
-  sign "$1"
-else
-  # tauri dev 实际运行的裸二进制
-  sign "$TARGET_DIR/debug/sbox"
-  sign "$TARGET_DIR/release/sbox"
-  # 打包产物（包括 --target 生成的子目录）
-  while IFS= read -r -d '' app; do
-    sign "$app"
-  done < <(find "$TARGET_DIR" -type d -path '*/bundle/macos/sbox.app' -print0 2>/dev/null)
-fi
+signed_dev() {
+  check_identity >/dev/null
+  (
+    cd "$ROOT/packages/app"
+    APPLE_SIGNING_IDENTITY="$IDENTITY" pnpm exec tauri build --debug --bundles app
+    open "$TARGET_DIR/debug/bundle/macos/sbox.app"
+  )
+}
+
+import_ci() {
+  : "${APPLE_CERTIFICATE:?缺少 GitHub Secret APPLE_CERTIFICATE}"
+  : "${APPLE_CERTIFICATE_PASSWORD:?缺少 GitHub Secret APPLE_CERTIFICATE_PASSWORD}"
+
+  local ci_keychain_password="sbox-ci-keychain"
+  local ci_keychain_path="$RUNNER_TEMP/sbox-signing.keychain-db"
+  local ci_p12_path="$RUNNER_TEMP/sbox-signing.p12"
+  local ci_cert_path="$RUNNER_TEMP/sbox-signing.crt"
+
+  printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$ci_p12_path"
+
+  echo "正在创建临时签名钥匙串..."
+  security create-keychain -p "$ci_keychain_password" "$ci_keychain_path"
+  security set-keychain-settings -lut 21600 "$ci_keychain_path"
+  security unlock-keychain -p "$ci_keychain_password" "$ci_keychain_path"
+
+  echo "正在导入签名身份..."
+  security import "$ci_p12_path" -k "$ci_keychain_path" \
+    -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+  # 从已导入的钥匙串读取证书，避免 OpenSSL 3 拒绝旧 P12 中的 RC2 加密。
+  security find-certificate -c "$IDENTITY" -p "$ci_keychain_path" > "$ci_cert_path"
+
+  echo "正在信任自签名证书..."
+  sudo -n security add-trusted-cert -d -r trustRoot -p codeSign \
+    -k /Library/Keychains/System.keychain "$ci_cert_path"
+
+  echo "正在授权 codesign 访问私钥..."
+  security set-key-partition-list -S apple-tool:,apple:,codesign: \
+    -s -k "$ci_keychain_password" "$ci_keychain_path"
+
+  local existing_keychains
+  existing_keychains="$(security list-keychains -d user | tr -d '"')"
+  # shellcheck disable=SC2086
+  security list-keychains -d user -s "$ci_keychain_path" $existing_keychains
+
+  if ! security find-identity -v -p codesigning "$ci_keychain_path" | grep -Fq "\"$IDENTITY\""; then
+    echo "导入后仍未找到有效签名身份: $IDENTITY" >&2
+    security find-identity -v -p codesigning "$ci_keychain_path" >&2
+    return 1
+  fi
+
+  echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+  echo "已导入固定 macOS 签名身份: $IDENTITY"
+}
+
+case "${1:-}" in
+  --setup) setup_identity ;;
+  --check) check_identity ;;
+  --dev) signed_dev ;;
+  --import-ci) import_ci ;;
+  --help|-h)
+    echo "Usage: bash sign.sh [--setup|--check|--dev|--import-ci|<path>]"
+    ;;
+  --*) echo "未知参数: $1" >&2; exit 1 ;;
+  *)
+    if [ $# -ge 1 ]; then
+      sign "$1"
+    else
+      sign "$TARGET_DIR/debug/sbox"
+      sign "$TARGET_DIR/release/sbox"
+      while IFS= read -r -d '' app; do
+        sign "$app"
+      done < <(find "$TARGET_DIR" -type d -path '*/bundle/macos/sbox.app' -print0 2>/dev/null)
+    fi
+    ;;
+esac

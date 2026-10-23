@@ -7,7 +7,7 @@
     "tauri": "tauri",
     "dev": "tauri dev",
     "macos:setup-signing": "bash src-tauri/native/macos/sign.sh --setup",
-    "macos:dev": "bash src-tauri/native/macos/signed-dev.sh",
+    "macos:dev": "bash src-tauri/native/macos/sign.sh --dev",
     "macos:build": "APPLE_SIGNING_IDENTITY=sbox-dev tauri build",
     "windows:build": "tauri build",
     "linux:build": "tauri build",
