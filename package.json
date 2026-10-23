@@ -12,6 +12,8 @@
     "tauri": "pnpm --filter @sbox/app tauri",
     "debug:app": "cargo build --manifest-path packages/app/src-tauri/Cargo.toml --no-default-features",
     "release": "node scripts/release.cjs",
+    "sync:versions": "node scripts/sync-versions.cjs",
+    "sync:icons": "node scripts/sync-icons.cjs",
     "docs:dev": "vitepress dev docs-site",
     "docs:build": "vitepress build docs-site",
     "docs:preview": "vitepress preview docs-site"

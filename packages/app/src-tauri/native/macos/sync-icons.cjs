@@ -1,15 +1,36 @@
-#!/usr/bin/env swift
-// Regenerate the macOS icon without changing the shared source or Windows/Linux icons.
-import Foundation
+#!/usr/bin/env node
+const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const { generateNativeIcons } = require("../sync-icons.cjs");
+
+function syncIcons() {
+  if (process.platform !== "darwin") {
+    throw new Error("macOS Dock 和托盘图标需要在 macOS 上生成");
+  }
+  return generateNativeIcons("macos", {
+    inputs: [__filename],
+    generate({ generated, output, root }) {
+      fs.copyFileSync(path.join(generated, "32x32.png"), path.join(output, "32x32.png"));
+      execFileSync("swift", ["-module-cache-path", path.join(root, ".tmp/swift-module-cache"),
+        "-", path.join(root, "packages/icon/icon.png"), output],
+        { cwd: root, input: swiftSource, stdio: ["pipe", "inherit", "inherit"] });
+    },
+  });
+}
+
+// Keep CoreGraphics rendering here so icon generation has a single maintained entry point.
+const swiftSource = String.raw`import Foundation
 import CoreGraphics
 import ImageIO
 
-let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-let icons = root.appendingPathComponent("packages/app/src-tauri/icons")
+let sourceURL = URL(fileURLWithPath: CommandLine.arguments[1])
+let icons = URL(fileURLWithPath: CommandLine.arguments[2])
+try FileManager.default.createDirectory(at: icons, withIntermediateDirectories: true)
 
-guard let source = CGImageSourceCreateWithURL(icons.appendingPathComponent("icon.png") as CFURL, nil),
+guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil),
       let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-    fatalError("Cannot read icons/icon.png")
+    fatalError("Cannot read packages/icon/icon.png")
 }
 
 // Keep the rounded-square artwork inside an 856 px square on a 1024 px canvas.
@@ -64,7 +85,7 @@ output.append(chunkHeader("TOC ", tableOfContents.count + 8))
 output.append(tableOfContents)
 output.append(chunks)
 try output.write(to: icons.appendingPathComponent("icon.icns"), options: .atomic)
-print("Generated icons/icon.icns (856/1024 artwork, transparent padding)")
+print("Generated native/macos/icons/icon.icns (856/1024 artwork, transparent padding)")
 
 // Render the same robot artwork for the 18 pt menu bar slot at 2x resolution.
 // A 1 pt transparent inset keeps it clear of the menu bar edges.
@@ -83,4 +104,8 @@ guard let trayImage = trayContext.makeImage(),
 }
 CGImageDestinationAddImage(trayDestination, trayImage, nil)
 guard CGImageDestinationFinalize(trayDestination) else { fatalError("Cannot write macOS tray icon") }
-print("Generated icons/tray-macos.png (same robot artwork, 18 pt at 2x)")
+print("Generated native/macos/icons/tray-macos.png (same robot artwork, 18 pt at 2x)")
+`;
+
+module.exports = { syncIcons };
+if (require.main === module) syncIcons();

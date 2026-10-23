@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1400",
-    "beforeDevCommand": "pnpm --filter @sbox/app exec vite dev --port 1400",
-    "beforeBuildCommand": "pnpm --filter @sbox/app exec vite build"
+    "beforeDevCommand": "node src-tauri/native/sync-icons.cjs && pnpm --filter @sbox/app exec vite dev --port 1400",
+    "beforeBuildCommand": "node src-tauri/native/sync-icons.cjs && pnpm --filter @sbox/app exec vite build"
   },
   "app": {
     "macOSPrivateApi": true,
@@ -30,21 +30,16 @@
     "active": true,
     "publisher": "while",
     "createUpdaterArtifacts": true,
-    "targets": ["nsis", "app", "dmg", "deb", "appimage"],
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+    "targets": [
+      "nsis",
+      "app",
+      "dmg",
+      "deb",
+      "appimage"
     ],
-    "windows": {
-      "nsis": {
-        "installMode": "both",
-        "languages": ["SimpChinese", "English", "TradChinese"],
-        "displayLanguageSelector": true
-      }
-    }
+    "icon": [
+      "../../icon/icon.png"
+    ]
   },
   "plugins": {
     "updater": {

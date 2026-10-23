@@ -3,8 +3,8 @@
 # 适合需要反复修改 Rust 代码并验证截图的场景。
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-"$ROOT/scripts/mac-sign.sh" --check >/dev/null
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
+bash "$ROOT/packages/app/src-tauri/native/macos/sign.sh" --check >/dev/null
 
 cd "$ROOT/packages/app"
 APPLE_SIGNING_IDENTITY=sbox-dev pnpm exec tauri build --debug --bundles app

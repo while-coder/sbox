@@ -2,6 +2,12 @@
 
 sbox 是一个桌面工具箱，提供常用的格式处理、生成校验、图片媒体和账号辅助功能。
 
+## 版本与原生资源
+
+根 `package.json` 是版本来源，修改后运行 `pnpm sync:versions`，同步应用包与 Rust 应用版本（含 Cargo.lock）。Tauri 配置直接读取根版本。
+
+图标源文件为 `packages/icon/icon.png`，运行 `pnpm sync:icons` 刷新桌面和 Web 图标；macOS 图标需在 macOS 上生成。原生配置、图标生成和签名脚本按平台放在 [src-tauri/native](packages/app/src-tauri/native/README.md)。开发和构建会自动生成对应平台图标。
+
 ## 功能
 
 ### 编解码 / 数据

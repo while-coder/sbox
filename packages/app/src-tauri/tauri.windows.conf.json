@@ -1,0 +1,18 @@
+{
+  "bundle": {
+    "icon": [
+      "native/windows/icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "both",
+        "languages": [
+          "SimpChinese",
+          "English",
+          "TradChinese"
+        ],
+        "displayLanguageSelector": true
+      }
+    }
+  }
+}

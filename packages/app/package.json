@@ -1,12 +1,13 @@
 {
   "name": "@sbox/app",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "macos:setup-signing": "bash ../../scripts/mac-sign.sh --setup",
-    "macos:dev": "bash ../../scripts/mac-signed-dev.sh",
+    "macos:setup-signing": "bash src-tauri/native/macos/sign.sh --setup",
+    "macos:dev": "bash src-tauri/native/macos/signed-dev.sh",
     "macos:build": "APPLE_SIGNING_IDENTITY=sbox-dev tauri build",
     "windows:build": "tauri build",
     "linux:build": "tauri build"

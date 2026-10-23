@@ -4,14 +4,24 @@
 const KEYS: &[&str] = &["GDRIVE_BUILTIN_CLIENT_ID", "GDRIVE_BUILTIN_CLIENT_SECRET"];
 
 fn main() {
+    println!("cargo:rerun-if-changed=../../../package.json");
+    println!("cargo:rerun-if-changed=../../../packages/icon");
+    println!("cargo:rerun-if-changed=native/sync-icons.cjs");
+    let platform = std::env::var("CARGO_CFG_TARGET_OS").expect("missing target platform");
+    println!("cargo:rerun-if-changed=native/{platform}/sync-icons.cjs");
+    // Direct cargo builds also generate the target platform's resources.
+    let status = std::process::Command::new("node")
+        .args(["native/sync-icons.cjs", &platform])
+        .status()
+        .expect("failed to generate native icons; install Node.js and pnpm dependencies first");
+    assert!(status.success(), "native icon generation failed");
+    println!("cargo:rerun-if-changed=native/{platform}/icons");
     // macOS：screencapturekit → swift-rs 会把 @rpath/libswiftCore.dylib 等系统 Swift 运行库
     // 链进最终二进制，但 rustc 不会像 Xcode 那样自动补 LC_RPATH，缺少 rpath 时应用会在
     // 启动阶段被 dyld abort（"Library not loaded: @rpath/libswiftCore.dylib, no LC_RPATH's found"）。
     // /usr/lib/swift 是系统自带 Swift 运行时（dyld shared cache）的解析路径，随系统存在；
     // @executable_path/../Frameworks 兜底，以便日后向 .app/Contents/Frameworks 内嵌库时无需改动。
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-        // Tauri 的开发版会把 icns 缓存后嵌入二进制，显式跟踪源文件以免继续使用旧图标。
-        println!("cargo:rerun-if-changed=icons/icon.icns");
         println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
         println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
     }

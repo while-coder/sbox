@@ -13,3 +13,7 @@ docs-site/.vitepress/dist
 /secrets/
 tauri-updater.key
 tauri-updater.key.pub
+
+# Generated native icons and generation cache
+.tmp/
+packages/app/src-tauri/native/*/icons/

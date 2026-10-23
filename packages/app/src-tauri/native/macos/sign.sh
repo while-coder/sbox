@@ -6,17 +6,17 @@
 # 用固定证书签名后，DR 变为 identifier + 证书哈希，重编译不变，只需授权一次。
 #
 # 用法：
-#   scripts/mac-sign.sh --setup    # 首次创建并安装长期自签名证书（无需 Apple 账号）
-#   scripts/mac-sign.sh --check    # 检查当前钥匙串是否有可用签名身份
-#   scripts/mac-sign.sh            # 自动签名存在的 debug/release 二进制与 .app
-#   scripts/mac-sign.sh <路径>      # 签名指定的 .app 或可执行文件
+#   packages/app/src-tauri/native/macos/sign.sh --setup    # 首次创建并安装长期自签名证书（无需 Apple 账号）
+#   packages/app/src-tauri/native/macos/sign.sh --check    # 检查当前钥匙串是否有可用签名身份
+#   packages/app/src-tauri/native/macos/sign.sh            # 自动签名存在的 debug/release 二进制与 .app
+#   packages/app/src-tauri/native/macos/sign.sh <路径>      # 签名指定的 .app 或可执行文件
 #
 # `pnpm --filter @sbox/app macos:build` 会让 Tauri 使用这张证书签名打包产物；
 # 本脚本的直接签名模式用于已有二进制以及排查签名问题。
 set -euo pipefail
 
 IDENTITY="sbox-dev"
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
 TARGET_DIR="$ROOT/packages/app/src-tauri/target"
 SIGNING_DIR="${SBOX_SIGNING_DIR:-$HOME/.config/sbox/signing}"
 P12_PATH="$SIGNING_DIR/$IDENTITY.p12"
@@ -28,7 +28,7 @@ has_identity() {
 check_identity() {
   if ! has_identity; then
     echo "未找到可用的 macOS 签名身份: $IDENTITY" >&2
-    echo "请先运行: scripts/mac-sign.sh --setup" >&2
+    echo "请先运行: packages/app/src-tauri/native/macos/sign.sh --setup" >&2
     return 1
   fi
   security find-identity -v -p codesigning | grep -F "\"$IDENTITY\""
@@ -53,7 +53,7 @@ setup_identity() {
 
   local key_path="$SIGNING_DIR/$IDENTITY.key"
   local cert_path="$SIGNING_DIR/$IDENTITY.crt"
-  local config_path="$ROOT/scripts/mac-signing-openssl.cnf"
+  local config_path="$ROOT/packages/app/src-tauri/native/macos/signing-openssl.cnf"
 
   if [ -z "${SBOX_CERTIFICATE_PASSWORD:-}" ]; then
     read -r -s -p "设置 $IDENTITY.p12 的导出密码（用于 GitHub Secret）: " SBOX_CERTIFICATE_PASSWORD

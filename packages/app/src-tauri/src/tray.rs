@@ -82,7 +82,7 @@ pub(crate) fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     let builder = builder
         .icon(tauri::image::Image::from_bytes(include_bytes!(
-            "../icons/tray-macos.png"
+            "../native/macos/icons/tray-macos.png"
         ))?)
         .icon_as_template(false);
     #[cfg(not(target_os = "macos"))]
